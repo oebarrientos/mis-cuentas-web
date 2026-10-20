@@ -107,10 +107,10 @@ input.amount{font-family:var(--f-num);font-size:1.25rem}
         <h2 id="ftitle">Cargar movimiento</h2>
         <div class="seg" id="tipos"></div>
         <label>Monto ($)<input class="amount" id="monto" inputmode="decimal" placeholder="0"></label>
-        <label>¿De dónde?<select id="ambito"></select></label>
         <label>Categoría<select id="categoria"></select></label>
         <label id="lconcepto">Concepto<select id="concepto"></select></label>
         <label id="llibre">Concepto (opcional)<input id="libre" maxlength="60" placeholder="Escribí el concepto"></label>
+        <label id="llugar">Lugar<select id="lugar"></select></label>
         <label>Nota (opcional)<input id="detalle" maxlength="60" placeholder="Ej: Cheque Nº 1234 · Banco Nación"></label>
         <div id="westado"><div style="font-size:.8rem;color:var(--muted);font-weight:600;margin-bottom:6px">Estado</div><div class="seg" id="estado"></div></div>
         <label><span id="lfecha">Fecha</span><input type="date" id="fecha"></label>
@@ -141,27 +141,30 @@ const fb = initializeApp({
 });
 const auth = getAuth(fb), db = getFirestore(fb);
 
-/* Árbol: tipo → ¿de dónde? → categoría → conceptos (igual que Arbol.kt en el celu) */
+/* Listas: tipo → categoría → conceptos; algunas categorías piden el lugar (igual que Arbol.kt en el celu) */
 const OTRO = "Otro";
-const VEH = ["Combustible","Service"];
-const casa = () => ({ "Servicios":["Luz","Agua","Internet","Celular"], "Empleados":["Niñera","Empleada","Jardinero"], "Vehículos":VEH,
-  "Comida / Súper":[], "Mantenimiento":[], "Chicos":[], "Educación":[], "Salud":[], "Salidas":[], "Otros":[] });
+const LUGARES = ["Casa Yofre","Casa Mercedes","Casa Corrientes","Negocio"];
 const ARBOL = {
   egreso: {
-    "Casa Yofre": casa(), "Casa Mercedes": casa(), "Casa Corrientes": casa(),
-    "Negocio": { "Local":["Alquiler","Luz","Agua"], "Marketing":["Publicidad","Página web"], "Empleados":["Sueldos"], "Vehículos":VEH, "Otros":[] },
-    "Personal": { "Vehículos":VEH, "Celular":[], "Salud":[], "Salidas":[], "Otros":[] },
-    "Deudas": { "Cheques a pagar":[], "Cuotas de préstamos":[], "Tarjeta":[], "Impuestos":[], "Otros":[] },
+    "Servicios": {c:["Luz","Agua","Internet","Celular"], lugar:true},
+    "Empleados": {c:["Niñera","Empleada","Jardinero","Sueldos"], lugar:true},
+    "Mantenimiento": {c:[], lugar:true},
+    "Vehículos": {c:["Combustible","Service"]},
+    "Negocio": {c:["Alquiler","Publicidad","Página web"]},
+    "Comida / Súper": {c:[]}, "Chicos": {c:[]}, "Educación": {c:[]}, "Salud": {c:[]}, "Salidas": {c:[]},
+    "Deudas": {c:["Cheques a pagar","Cuotas de préstamos","Tarjeta","Impuestos"]},
+    "Otros": {c:[]},
   },
   ingreso: {
-    "Sueldo": { "Sueldo":[], "Aguinaldo":[], "Bono":[] },
-    "Negocio": { "Ventas del día":["Efectivo","Transferencia","Tarjeta","Mercado Pago"], "Cheques a cobrar":[], "Cuenta corriente":[] },
-    "Otros": { "Alquileres":[], "Reintegros":[], "Otros":[] },
+    "Sueldo": {c:["Sueldo","Aguinaldo","Bono"]},
+    "Negocio": {c:["Ventas del día","Cheques a cobrar","Cuenta corriente"]},
+    "Otros": {c:["Alquileres","Reintegros"]},
   },
 };
-const ambitos = t => Object.keys(ARBOL[t]);
-const categorias = (t,a) => Object.keys(ARBOL[t][a]||{});
-const conceptos = (t,a,c) => (ARBOL[t][a]||{})[c] || [];
+const categorias = t => Object.keys(ARBOL[t]);
+const conceptos = (t,c) => (ARBOL[t][c]||{}).c || [];
+const pideLugar = (t,c) => !!(ARBOL[t][c]||{}).lugar;
+const lugarDe = m => LUGARES.includes(m.ambito) ? m.ambito : m.categoria==="Negocio" ? "Negocio" : "General";
 
 const $ = s => document.querySelector(s);
 const fmt = n => new Intl.NumberFormat("es-AR",{style:"currency",currency:"ARS",maximumFractionDigits:0}).format(n||0);
@@ -179,7 +182,7 @@ const textoVence = d => d < -1 ? `venció hace ${-d} días` : d===-1 ? "venció 
 
 let uid=null, crudos=[], fijos=[], unsubs=[], movsServ=false, fijosServ=false;
 let tab="inicio", cur=new Date(); cur.setDate(1);
-const f = { tipo:"egreso", ambito:null, categoria:null, concepto:null, pendiente:false, editMov:null, editFijo:null };
+const f = { tipo:"egreso", lugar:"", categoria:null, concepto:null, pendiente:false, editMov:null, editFijo:null };
 
 /* Lee un movimiento, convirtiendo los del formato viejo (deuda/cobro). */
 function normalizar(id, m){
@@ -258,21 +261,21 @@ document.addEventListener("visibilitychange", ()=>{ if(!document.hidden){ genera
 /* ---------- formulario ---------- */
 function opciones(sel, lista, valor){ sel.innerHTML=""; lista.forEach(o=>{ const op=h("option","",o); op.value=o; sel.append(op); }); sel.value=valor; }
 function ajustar(){
-  if(!ambitos(f.tipo).includes(f.ambito)) f.ambito=ambitos(f.tipo)[0];
-  if(!categorias(f.tipo,f.ambito).includes(f.categoria)) f.categoria=categorias(f.tipo,f.ambito)[0];
-  const l=conceptos(f.tipo,f.ambito,f.categoria);
+  if(!categorias(f.tipo).includes(f.categoria)) f.categoria=categorias(f.tipo)[0];
+  const l=conceptos(f.tipo,f.categoria);
   if(!l.length) f.concepto=""; else if(!l.includes(f.concepto)&&f.concepto!==OTRO) f.concepto=l[0];
 }
 function drawForm(){
   ajustar();
   const t=$("#tipos"); t.innerHTML="";
   [["egreso","Egreso"],["ingreso","Ingreso"]].forEach(([v,l])=>{ const b=h("button","",l); b.type="button"; b.setAttribute("aria-pressed",f.tipo===v); b.onclick=()=>{f.tipo=v; drawForm();}; t.append(b); });
-  opciones($("#ambito"), ambitos(f.tipo), f.ambito);
-  opciones($("#categoria"), categorias(f.tipo,f.ambito), f.categoria);
-  const l=conceptos(f.tipo,f.ambito,f.categoria);
+  opciones($("#categoria"), categorias(f.tipo), f.categoria);
+  const l=conceptos(f.tipo,f.categoria);
   $("#lconcepto").hidden=!l.length; if(l.length) opciones($("#concepto"), [...l,OTRO], f.concepto);
   $("#llibre").hidden = !!l.length && f.concepto!==OTRO;
   $("#llibre").firstChild.textContent = l.length ? "¿Cuál?" : "Concepto (opcional)";
+  $("#llugar").hidden = !pideLugar(f.tipo,f.categoria);
+  opciones($("#lugar"), ["", ...LUGARES], f.lugar); $("#lugar").options[0].textContent="Elegí…";
   const esFijo=!!f.editFijo;
   $("#westado").hidden=esFijo;
   const e=$("#estado"); e.innerHTML="";
@@ -284,14 +287,14 @@ function drawForm(){
   $("#ftitle").textContent = esFijo ? "Editar fijo" : f.editMov ? "Editar" : $("#repite").checked ? "Nuevo fijo mensual" : "Cargar movimiento";
   $("#cancel").hidden = !(f.editMov||f.editFijo);
 }
-$("#ambito").onchange=e=>{f.ambito=e.target.value; drawForm();};
+$("#lugar").onchange=e=>{f.lugar=e.target.value;};
 $("#categoria").onchange=e=>{f.categoria=e.target.value; drawForm();};
 $("#concepto").onchange=e=>{f.concepto=e.target.value; drawForm();};
 $("#repite").onchange=drawForm; $("#fecha").onchange=drawForm;
 
 function cargarEnForm(x, esFijo){
-  f.tipo=x.tipo; f.ambito=x.ambito; f.categoria=x.categoria; ajustar();
-  const l=conceptos(f.tipo,f.ambito,f.categoria);
+  f.tipo=x.tipo; f.lugar=LUGARES.includes(x.ambito)?x.ambito:""; f.categoria=x.categoria; ajustar();
+  const l=conceptos(f.tipo,f.categoria);
   f.concepto = l.includes(x.concepto) ? x.concepto : l.length ? OTRO : "";
   $("#libre").value = (!l.includes(x.concepto) && x.concepto!==x.categoria) ? x.concepto : "";
   $("#monto").value=String(x.monto).replace(".",","); $("#detalle").value=x.detalle||"";
@@ -301,7 +304,7 @@ function cargarEnForm(x, esFijo){
   drawForm(); $("#monto").focus(); window.scrollTo({top:0,behavior:"smooth"});
 }
 function resetForm(repite=false){
-  f.editMov=null; f.editFijo=null; f.pendiente=false;
+  f.editMov=null; f.editFijo=null; f.pendiente=false; f.lugar="";
   $("#monto").value=""; $("#libre").value=""; $("#detalle").value=""; $("#fecha").value=today(); $("#ferr").textContent=""; $("#repite").checked=repite;
   drawForm();
 }
@@ -309,12 +312,14 @@ $("#cancel").onclick = ()=>resetForm();
 $("#frm").onsubmit = async e => {
   e.preventDefault();
   const n = parseFloat($("#monto").value.trim().replace(/\./g,"").replace(",","."));
-  const l = conceptos(f.tipo,f.ambito,f.categoria); const libre=$("#libre").value.trim();
+  const l = conceptos(f.tipo,f.categoria); const libre=$("#libre").value.trim();
+  const conLugar = pideLugar(f.tipo,f.categoria);
   const concepto = l.length && f.concepto!==OTRO ? f.concepto : libre ? libre : !l.length ? f.categoria : "";
   if(!(n>0)) { $("#ferr").textContent="Poné un monto mayor a cero."; return; }
   if(!concepto) { $("#ferr").textContent="Escribí cuál es el concepto."; return; }
+  if(conLugar && !f.lugar) { $("#ferr").textContent="Elegí el lugar."; return; }
   const fecha=$("#fecha").value||today(); const detalle=$("#detalle").value.trim();
-  const base={tipo:f.tipo, monto:n, ambito:f.ambito, categoria:f.categoria, concepto, detalle};
+  const base={tipo:f.tipo, monto:n, ambito:conLugar?f.lugar:"", categoria:f.categoria, concepto, detalle};
   try{
     if(f.editFijo){ await actualizarFijo({...f.editFijo, ...base, dia:parse(fecha).getDate()}); }
     else if(f.editMov){ await guardar({...f.editMov, ...base, fecha, pendiente:f.pendiente}); }
@@ -369,8 +374,8 @@ function render(){
     const egr=delMes.filter(m=>m.tipo==="egreso"), ing=delMes.filter(m=>m.tipo==="ingreso");
     const grp=(l,k)=>Object.entries(l.reduce((a,x)=>{const kk=k(x); a[kk]=(a[kk]||0)+x.monto; return a;},{})).sort((a,b)=>b[1]-a[1]);
     const g=h("div","grid2");
-    if(egr.length){ g.append(barras("Gastos por lugar", grp(egr,x=>x.ambito||"Sin asignar"), tout)); g.append(barras("Gastos por categoría", grp(egr,x=>x.categoria||"Otros"), tout)); }
-    if(ing.length) g.append(barras("Ingresos", grp(ing,x=>[x.ambito,x.categoria].filter(Boolean).filter((s,i,a)=>a.indexOf(s)===i).join(" · ")), tin, true));
+    if(egr.length){ g.append(barras("Gastos por lugar", grp(egr,lugarDe), tout)); g.append(barras("Gastos por categoría", grp(egr,x=>x.categoria||"Otros"), tout)); }
+    if(ing.length) g.append(barras("Ingresos", grp(ing,x=>x.categoria||"Otros"), tin, true));
     v.append(g);
     let last=""; delMes.sort(bySort).forEach(m=>{ if(m.fecha!==last){ last=m.fecha; sec(fdate(m.fecha)); } v.append(row(m)); });
   } else if(tab==="pend"){
@@ -389,13 +394,13 @@ function barras(titulo, lista, total, ingreso=false){
   lista.forEach(([c,m])=>{ const b=h("div","bar"+(ingreso?" in":"")); b.append(h("span","",c),h("span","num",fmt(m))); const i=h("i"); const bb=h("b"); bb.style.width=(total?m/total*100:0)+"%"; i.append(bb); b.append(i); box.append(b); });
   return box;
 }
-function donde(x){ return [x.ambito,x.categoria].filter(s=>s&&s!==x.concepto).filter((s,i,a)=>a.indexOf(s)===i).join(" · "); }
+function donde(x){ return [x.categoria!==x.concepto?x.categoria:"", LUGARES.includes(x.ambito)?x.ambito:""].filter(Boolean).join(" · "); }
 function botonBorrar(fn){ const d=h("button","btn del","Borrar"); d.onclick=()=>{ if(d.dataset.sure) fn(); else { d.dataset.sure=1; d.textContent="¿Seguro?"; setTimeout(()=>{delete d.dataset.sure; d.textContent="Borrar";},3000); } }; return d; }
 function row(x){
   const r=h("div","row"); const ing=x.tipo==="ingreso"; const d=dias(x.fecha);
   r.style.setProperty("--franja", x.pendiente ? semaforo(d) : ing ? "var(--in)" : "var(--out)");
   const t=h("div","txt"); t.append(h("div","c",x.concepto));
-  const sub=donde(x)+(x.detalle?" · "+x.detalle:""); if(sub) t.append(h("div","s",sub));
+  const sub=[donde(x),x.detalle].filter(Boolean).join(" · "); if(sub) t.append(h("div","s",sub));
   if(x.pendiente) t.append(h("div","vence",textoVence(d)+" · "+fdate(x.fecha)));
   r.append(t, h("div","num amt "+x.tipo,(ing?"+":"−")+fmt(x.monto)));
   const a=h("div","acts");
