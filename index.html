@@ -230,6 +230,7 @@ const textoVence = d => d < -1 ? `venció hace ${-d} días` : d===-1 ? "venció 
 const textoDia = dia => dia===ULTIMO_HABIL ? "Último día hábil de cada mes" : "Todos los días "+dia;
 const sum = l => l.reduce((a,x)=>a+x.monto,0);
 
+let inicio={};
 let uid=null, crudos=[], fijos=[], unsubs=[], movsServ=false, fijosServ=false, plantillaRevisada=null;
 let tab="inicio", cur=new Date(); cur.setDate(1);
 let libro = "personal"; try { libro = localStorage.getItem("libro") || "personal"; } catch(e){}
@@ -322,6 +323,7 @@ onAuthStateChanged(auth, u => {
     if(!snap.metadata.fromCache){ movsServ=true; generarFijos(); }
     render();
   }));
+  unsubs.push(onSnapshot(doc(collection(db,"users",uid,"meta"),"config"), snap => { inicio = (snap.exists() && snap.data().inicio) || {}; render(); }));
   unsubs.push(onSnapshot(fijosCol(), {includeMetadataChanges:true}, snap => {
     fijos = snap.docs.map(d=>normalizarFijo(d.id,d.data()));
     if(!snap.metadata.fromCache){ fijosServ=true; generarFijos(); }
@@ -437,7 +439,8 @@ function render(){
   segmentos($("#libros"), LIBROS, libro, v=>{ libro=v; try{localStorage.setItem("libro",v);}catch(e){} if(!f.editMov&&!f.editFijo){ f.libro=v; drawForm(); } render(); });
   const todos=movs().filter(m=>m.libro===libro), hechos=todos.filter(m=>!m.pendiente), pend=todos.filter(m=>m.pendiente).sort((a,b)=>a.fecha.localeCompare(b.fecha));
   const aPagar=pend.filter(m=>m.tipo==="egreso"), aCobrar=pend.filter(m=>m.tipo==="ingreso");
-  const saldo = hechos.reduce((a,x)=>a+(x.tipo==="ingreso"?x.monto:-x.monto),0);
+  const desde = inicio[libro] || "";
+  const saldo = hechos.filter(m=>m.fecha>=desde).reduce((a,x)=>a+(x.tipo==="ingreso"?x.monto:-x.monto),0);
   const mk=ym(cur), delMes=hechos.filter(m=>m.fecha.startsWith(mk));
   const tin=sum(delMes.filter(m=>m.tipo==="ingreso")), tout=sum(delMes.filter(m=>m.tipo==="egreso"));
   /* Tablero del mes: lo que hay que cubrir (pagado + por pagar hasta fin de mes) contra lo que entró */
@@ -448,7 +451,7 @@ function render(){
   $("#saldo").textContent=(res<0?"−":"+")+fmt(Math.abs(res));
   $("#meter").style.width = (comp>0 ? Math.min(100, tout/comp*100) : 100)+"%";
   $("#tcomp").textContent=fmt(comp); $("#tin").textContent=fmt(tin); $("#tout").textContent=fmt(tout); $("#tdue").textContent=fmt(porPagarMes);
-  $("#sub2").textContent = `Por cobrar este mes ${fmt(porCobrarMes)} · Saldo acumulado ${fmt(saldo)}`;
+  $("#sub2").textContent = `Por cobrar este mes ${fmt(porCobrarMes)} · Saldo acumulado${desde?" desde el "+parse(desde).toLocaleDateString("es-AR",{day:"numeric",month:"short"}):""} ${fmt(saldo)}`;
 
   const tabs=$("#tabs"); tabs.innerHTML="";
   [["inicio","Inicio"],["mes","Mes"],["pend","Pendientes"+(pend.length?" "+pend.length:"")],["fijos","Fijos"]].forEach(([k,l])=>{
