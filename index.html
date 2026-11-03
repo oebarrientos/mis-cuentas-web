@@ -12,7 +12,7 @@
   --bg:#f3f5f2; --card:#fff; --ink:#18231f; --muted:#5f6d67; --line:#dde3df;
   --accent:#1f5f4a; --accent-ink:#fff;
   --in:#1d7a46; --in-bg:#e3f2e8; --out:#b3402f; --out-bg:#f8e5e1;
-  --verde:#2e9e5b; --amarillo:#c99700; --rojo:#d64533;
+  --verde:#2e9e5b; --amarillo:#c99700; --rojo:#d64533; --pagado-bg:#e3f4e8;
   --f-display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
   --f-body:"Figtree","Segoe UI",system-ui,sans-serif;
   --f-num:"IBM Plex Mono",ui-monospace,Consolas,monospace;
@@ -21,7 +21,7 @@
   --bg:#101614; --card:#18201d; --ink:#e7eeea; --muted:#94a39c; --line:#2a3531;
   --accent:#4fb08c; --accent-ink:#0c1512;
   --in:#5cc98a; --in-bg:#15291e; --out:#f0806e; --out-bg:#311a16;
-  --verde:#4cc07e; --amarillo:#f2c230; --rojo:#f06a57; color-scheme:dark}}
+  --verde:#4cc07e; --amarillo:#f2c230; --rojo:#f06a57; --pagado-bg:#173222; color-scheme:dark}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--f-body)}
 .num{font-family:var(--f-num);font-variant-numeric:tabular-nums;font-weight:600}
@@ -63,6 +63,7 @@ input.amount{font-family:var(--f-num);font-size:1.25rem}
 .month span{font-weight:600;min-width:130px;text-align:center;text-transform:capitalize}
 .list{display:flex;flex-direction:column;gap:8px}
 .day{font-size:.75rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:8px 2px 0}
+.row.pagado{background:var(--pagado-bg)}
 .row{background:var(--card);border:1px solid var(--line);border-left:6px solid var(--franja);border-radius:12px;padding:12px;display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center}
 @media (max-width:560px){.row{grid-template-columns:1fr auto}.acts{grid-column:1/-1;justify-content:flex-end}}
 .txt{min-width:0}.c{font-weight:600;overflow-wrap:anywhere}.s{font-size:.82rem;color:var(--muted)}
@@ -115,7 +116,7 @@ input.amount{font-family:var(--f-num);font-size:1.25rem}
       </section>
       <form class="box" id="frm" autocomplete="off">
         <h2 id="ftitle">Cargar movimiento</h2>
-        <div class="seg" id="flibros"></div>
+        <div class="s" id="flibro"></div>
         <div class="seg" id="tipos"></div>
         <label>Monto ($)<input class="amount" id="monto" inputmode="decimal" placeholder="0"></label>
         <label>Categoría<select id="categoria"></select></label>
@@ -133,7 +134,7 @@ input.amount{font-family:var(--f-num);font-size:1.25rem}
         <label class="chk" id="lhabil"><input type="checkbox" id="habil"> <span>El último día hábil de cada mes</span></label>
         <label id="wfecha"><span id="lfecha">Fecha</span><input type="date" id="fecha"></label>
         <div class="err" id="ferr"></div>
-        <div style="display:flex;gap:8px"><button type="button" class="btn" id="cancel" hidden>Cancelar</button><button class="btn pri" style="flex:1;padding:12px">Guardar</button></div>
+        <div style="display:flex;gap:8px"><button type="button" class="btn del" id="fborrar" hidden>Borrar</button><button type="button" class="btn" id="cancel" hidden>Cancelar</button><button class="btn pri" style="flex:1;padding:12px">Guardar</button></div>
       </form>
     </div>
     <div class="col">
@@ -349,7 +350,7 @@ function estadoForm(){
 }
 function drawForm(){
   ajustar();
-  segmentos($("#flibros"), LIBROS, f.libro, v=>{ f.libro=v; drawForm(); });
+  $("#flibro").textContent = f.libro==="negocio" ? "Negocio" : "Personal";
   segmentos($("#tipos"), [["egreso","Egreso"],["ingreso","Ingreso"]], f.tipo, v=>{ f.tipo=v; drawForm(); });
   const {l, ex, conCasa, net} = estadoForm();
   opciones($("#categoria"), categorias(f.libro,f.tipo), f.categoria);
@@ -375,7 +376,9 @@ function drawForm(){
   $("#lfecha").textContent = esFijo ? "Día del mes (elegí cualquier fecha con ese día)" : comoFijo ? "Primera vez (después se repite ese día)" : f.pendiente ? "Vence" : "Fecha";
   $("#ftitle").textContent = esFijo ? "Editar fijo" : f.editMov ? "Editar" : comoFijo ? "Nuevo fijo mensual" : "Cargar movimiento";
   $("#cancel").hidden = !(f.editMov||f.editFijo);
+  $("#fborrar").hidden = !(f.editMov && crudos.some(m=>m.id===f.editMov.id)); $("#fborrar").textContent="Borrar"; delete $("#fborrar").dataset.sure;
 }
+$("#fborrar").onclick = async ()=>{ const b=$("#fborrar"); if(!b.dataset.sure){ b.dataset.sure=1; b.textContent="¿Borrar?"; return; } await borrar(f.editMov); resetForm(); };
 $("#lugar").onchange=e=>{f.casa=e.target.value; drawForm();};
 $("#banco").onchange=e=>{f.banco=e.target.value;};
 $("#prov").onchange=e=>{f.prov=e.target.value; drawForm();};
@@ -442,10 +445,18 @@ function render(){
   const desde = inicio[libro] || "";
   const saldo = hechos.filter(m=>m.fecha>=desde).reduce((a,x)=>a+(x.tipo==="ingreso"?x.monto:-x.monto),0);
   const mk=ym(cur), delMes=hechos.filter(m=>m.fecha.startsWith(mk));
+  /* Para meses que vienen, los fijos todavía no generados se muestran proyectados (con su id definitivo) */
+  const ids=new Set(crudos.map(m=>m.id));
+  const proyectados = mk>ym(new Date()) ? fijos.filter(fj=>fj.libro===libro && fj.desde<=mk).map(fj=>instancia(fj,mk)).filter(m=>!ids.has(m.id)) : [];
+  const pendMes=[...pend,...proyectados];
+  const todoMes=[...todos.filter(m=>m.fecha.startsWith(mk)),...proyectados].sort((a,b)=>a.fecha.localeCompare(b.fecha)||(a.creado||0)-(b.creado||0));
+  const vencidosAntes = mk===ym(new Date()) ? pend.filter(m=>m.fecha<mk+"-01") : [];
   const tin=sum(delMes.filter(m=>m.tipo==="ingreso")), tout=sum(delMes.filter(m=>m.tipo==="egreso"));
   /* Tablero del mes: lo que hay que cubrir (pagado + por pagar hasta fin de mes) contra lo que entró */
   const finMes = iso(new Date(cur.getFullYear(), cur.getMonth()+1, 0));
-  const porPagarMes = sum(aPagar.filter(m=>m.fecha<=finMes)), porCobrarMes = sum(aCobrar.filter(m=>m.fecha<=finMes));
+  /* Cada mes suma lo suyo; el mes actual suma además lo vencido de meses anteriores */
+  const iniMes = mk===ym(new Date()) ? "" : mk+"-01"; const enMes = m => m.fecha<=finMes && m.fecha>=iniMes;
+  const porPagarMes = sum(pendMes.filter(m=>m.tipo==="egreso"&&enMes(m))), porCobrarMes = sum(pendMes.filter(m=>m.tipo==="ingreso"&&enMes(m)));
   const comp = tout + porPagarMes, res = tin - comp;
   $("#hlbl").textContent = "Gastos de "+cur.toLocaleDateString("es-AR",{month:"long"})+" · "+(libro==="negocio"?"Negocio":"Personal");
   $("#saldo").textContent=(res<0?"−":"+")+fmt(Math.abs(res));
@@ -476,19 +487,20 @@ function render(){
   } else if(tab==="mes"){
     const mb=h("div","month"); const pv=h("button","","‹"), nx=h("button","","›"), lb=h("span","",cur.toLocaleDateString("es-AR",{month:"long",year:"numeric"}));
     pv.onclick=()=>{cur.setMonth(cur.getMonth()-1);render();}; nx.onclick=()=>{cur.setMonth(cur.getMonth()+1);render();}; mb.append(pv,lb,nx); v.append(mb);
-    if(!delMes.length){ empty("No hay movimientos en este mes."); return; }
-    const egr=delMes.filter(m=>m.tipo==="egreso"), ing=delMes.filter(m=>m.tipo==="ingreso");
+    if(vencidosAntes.length){ sec("Vencido de meses anteriores · "+fmt(sum(vencidosAntes))); vencidosAntes.forEach(m=>v.append(row(m))); }
+    if(!todoMes.length){ empty("No hay nada cargado para este mes."); return; }
+    let last=""; todoMes.forEach(m=>{ if(m.fecha!==last){ last=m.fecha; sec(fdate(m.fecha)); } v.append(row(m)); });
+    const egr=todoMes.filter(m=>m.tipo==="egreso"), ing=todoMes.filter(m=>m.tipo==="ingreso"); const totE=sum(egr);
     const grp=(l,k)=>Object.entries(l.reduce((a,x)=>{const kk=k(x); a[kk]=(a[kk]||0)+x.monto; return a;},{})).sort((a,b)=>b[1]-a[1]);
     const g=h("div","grid2");
     if(egr.length){
-      if(egr.some(x=>CASAS.includes(x.ambito))) g.append(barras("Gastos por casa", grp(egr,lugarDe), tout));
-      g.append(barras("Gastos por categoría", grp(egr,x=>x.categoria||"Otros"), tout));
+      if(egr.some(x=>CASAS.includes(x.ambito))) g.append(barras("Gastos por casa", grp(egr,lugarDe), totE));
+      g.append(barras("Gastos por categoría", grp(egr,x=>x.categoria||"Otros"), totE));
       const aProv=egr.filter(x=>x.proveedor && !Object.values(INTERNET).includes(x.proveedor));
       if(aProv.length) g.append(barras("Pagos a proveedores", grp(aProv,x=>x.proveedor), sum(aProv)));
     }
-    if(ing.length) g.append(barras("Ingresos", grp(ing,x=>x.categoria||"Otros"), tin, true));
+    if(ing.length) g.append(barras("Ingresos", grp(ing,x=>x.categoria||"Otros"), sum(ing), true));
     v.append(g);
-    let last=""; delMes.sort(bySort).forEach(m=>{ if(m.fecha!==last){ last=m.fecha; sec(fdate(m.fecha)); } v.append(row(m)); });
   } else if(tab==="pend"){
     sec("A pagar · "+fmt(sum(aPagar))); if(!aPagar.length) empty("No tenés nada pendiente de pagar."); aPagar.forEach(m=>v.append(row(m)));
     sec("A cobrar · "+fmt(sum(aCobrar))); if(!aCobrar.length) empty("No tenés nada pendiente de cobrar. Cargá un ingreso como “Pendiente” con su fecha, por ejemplo un cheque."); aCobrar.forEach(m=>v.append(row(m)));
@@ -508,16 +520,17 @@ function barras(titulo, lista, total, ingreso=false){
 function donde(x){ return [x.categoria!==x.concepto?x.categoria:"", CASAS.includes(x.ambito)?x.ambito:""].filter(Boolean).join(" · "); }
 function botonBorrar(fn){ const d=h("button","btn del","Borrar"); d.onclick=()=>{ if(d.dataset.sure) fn(); else { d.dataset.sure=1; d.textContent="¿Seguro?"; setTimeout(()=>{delete d.dataset.sure; d.textContent="Borrar";},3000); } }; return d; }
 function row(x){
-  const r=h("div","row"); const ing=x.tipo==="ingreso"; const d=dias(x.fecha);
+  const r=h("div","row"+(x.pendiente?"":" pagado")); const ing=x.tipo==="ingreso"; const d=dias(x.fecha);
   r.style.setProperty("--franja", x.pendiente ? semaforo(d) : ing ? "var(--in)" : "var(--out)");
-  const t=h("div","txt"); t.append(h("div","c",x.concepto));
+  const t=h("div","txt"); t.append(h("div","c",(x.pendiente?"":"✓ ")+x.concepto));
   const prov = x.proveedor && x.proveedor!==x.concepto ? x.proveedor : "";
   const sub=[donde(x),x.banco,prov,x.detalle].filter(Boolean).join(" · "); if(sub) t.append(h("div","s",sub));
   if(x.pendiente) t.append(h("div","vence",textoVence(d)+" · "+fdate(x.fecha)));
   r.append(t, h("div","num amt "+x.tipo,(ing?"+":"−")+fmt(x.monto)));
   const a=h("div","acts");
   if(x.pendiente){ const p=h("button","btn pri", ing?"Lo cobré":"Lo pagué"); p.onclick=()=>guardar({...x,pendiente:false,fecha:today()}); a.append(p); }
-  const e=h("button","btn","Editar"); e.onclick=()=>cargarEnForm(x,false); a.append(e, botonBorrar(()=>borrar(x)));
+  const e=h("button","btn","Editar"); e.onclick=()=>cargarEnForm(x,false); a.append(e);
+  if(x.pendiente) a.append(botonBorrar(()=>borrar(x)));
   r.append(a); return r;
 }
 function rowFijo(fj){
