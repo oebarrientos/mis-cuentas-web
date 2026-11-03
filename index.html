@@ -27,6 +27,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--f-body)
 .num{font-family:var(--f-num);font-variant-numeric:tabular-nums;font-weight:600}
 header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;max-width:1240px;margin:0 auto;padding:18px 20px 6px}
 h1{font-family:var(--f-display);font-size:1.7rem;margin:0}
+.libros{flex:0 1 320px}.libros button{padding:10px 14px;font-size:.95rem}
 .who{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:.9rem}
 main{max-width:1240px;margin:0 auto;padding:10px 20px 40px;display:grid;grid-template-columns:minmax(300px,390px) 1fr;gap:20px;align-items:start}
 @media (max-width:860px){main{grid-template-columns:1fr}}
@@ -90,6 +91,7 @@ input.amount{font-family:var(--f-num);font-size:1.25rem}
 <div id="app" hidden>
   <header>
     <h1>Mis Cuentas</h1>
+    <div class="seg libros" id="libros"></div>
     <div class="who"><span id="email"></span><button class="btn" id="salir">Salir</button></div>
   </header>
   <main>
@@ -105,16 +107,23 @@ input.amount{font-family:var(--f-num);font-size:1.25rem}
       </section>
       <form class="box" id="frm" autocomplete="off">
         <h2 id="ftitle">Cargar movimiento</h2>
+        <div class="seg" id="flibros"></div>
         <div class="seg" id="tipos"></div>
         <label>Monto ($)<input class="amount" id="monto" inputmode="decimal" placeholder="0"></label>
         <label>Categoría<select id="categoria"></select></label>
         <label id="lconcepto">Concepto<select id="concepto"></select></label>
         <label id="llibre">Concepto (opcional)<input id="libre" maxlength="60" placeholder="Escribí el concepto"></label>
-        <label id="llugar">Lugar<select id="lugar"></select></label>
-        <label>Nota (opcional)<input id="detalle" maxlength="60" placeholder="Ej: Cheque Nº 1234 · Banco Nación"></label>
+        <label id="llugar">Casa<select id="lugar"></select></label>
+        <div id="internet" class="s" hidden></div>
+        <label id="lbanco">Banco<select id="banco"></select></label>
+        <label id="lbancolibre">Banco (opcional)<input id="bancolibre" maxlength="40" placeholder="Ej: Banco Galicia"></label>
+        <label id="lprov">Proveedor (opcional)<select id="prov"></select></label>
+        <label id="lprovlibre">¿Qué proveedor?<input id="provlibre" maxlength="40"></label>
+        <label><span id="tnota">Nota (opcional)</span><input id="detalle" maxlength="60" placeholder="Ej: factura de septiembre"></label>
         <div id="westado"><div style="font-size:.8rem;color:var(--muted);font-weight:600;margin-bottom:6px">Estado</div><div class="seg" id="estado"></div></div>
-        <label><span id="lfecha">Fecha</span><input type="date" id="fecha"></label>
-        <label class="chk" id="lrepite"><input type="checkbox" id="repite"> <span id="trepite">Se repite todos los meses</span></label>
+        <label class="chk" id="lrepite"><input type="checkbox" id="repite"> <span>Se repite todos los meses</span></label>
+        <label class="chk" id="lhabil"><input type="checkbox" id="habil"> <span>El último día hábil de cada mes</span></label>
+        <label id="wfecha"><span id="lfecha">Fecha</span><input type="date" id="fecha"></label>
         <div class="err" id="ferr"></div>
         <div style="display:flex;gap:8px"><button type="button" class="btn" id="cancel" hidden>Cancelar</button><button class="btn pri" style="flex:1;padding:12px">Guardar</button></div>
       </form>
@@ -141,30 +150,61 @@ const fb = initializeApp({
 });
 const auth = getAuth(fb), db = getFirestore(fb);
 
-/* Listas: tipo → categoría → conceptos; algunas categorías piden el lugar (igual que Arbol.kt en el celu) */
+/* Listas: libro → tipo → categoría → conceptos (igual que Arbol.kt en el celu) */
 const OTRO = "Otro";
-const LUGARES = ["Casa Yofre","Casa Mercedes","Casa Corrientes","Negocio"];
+const LIBROS = [["personal","Personal"],["negocio","Negocio"]];
+const CASAS = ["Casa Yofre","Casa Mercedes","Casa Corrientes"];
+const PROVEEDORES = ["Celta SRL","Amado Electricidad","Electricidad Total","Ayala Electricidad"];
+const BANCOS = ["Banco Nación","Banco de Corrientes"];
+const INTERNET = {"Casa Mercedes":"Wireless","Casa Yofre":"Starlink","Casa Corrientes":"Flow"};
+const ULTIMO_HABIL = 0;
 const ARBOL = {
-  egreso: {
-    "Servicios": {c:["Luz","Agua","Internet","Celular"], lugar:true},
-    "Empleados": {c:["Niñera","Empleada","Jardinero","Sueldos"], lugar:true},
-    "Mantenimiento": {c:[], lugar:true},
-    "Vehículos": {c:["Combustible","Service"]},
-    "Negocio": {c:["Alquiler","Publicidad","Página web"]},
-    "Comida / Súper": {c:[]}, "Chicos": {c:[]}, "Educación": {c:[]}, "Salud": {c:[]}, "Salidas": {c:[]},
-    "Deudas": {c:["Cheques a pagar","Cuotas de préstamos","Tarjeta","Impuestos"]},
-    "Otros": {c:[]},
+  personal: {
+    egreso: {
+      "Servicios": {c:["Luz","Agua","Internet","Celular"], casa:true},
+      "Empleados": {c:["Niñera","Empleada","Jardinero"], casa:true},
+      "Mantenimiento": {c:[], casa:true},
+      "Vehículos": {c:["Combustible","Service"]},
+      "Comida / Súper": {c:[]}, "Chicos": {c:[]}, "Educación": {c:[]}, "Salud": {c:[]}, "Salidas": {c:[]},
+      "Deudas": {c:["Cuotas de préstamos","Tarjeta","Impuestos"]},
+      "Otros": {c:[]},
+    },
+    ingreso: {
+      "Sueldo": {c:["Sueldo","Aguinaldo","Bono"]},
+      "Otros": {c:["Alquileres","Reintegros"]},
+    },
   },
-  ingreso: {
-    "Sueldo": {c:["Sueldo","Aguinaldo","Bono"]},
-    "Negocio": {c:["Ventas del día","Cheques a cobrar","Cuenta corriente"]},
-    "Otros": {c:["Alquileres","Reintegros"]},
+  negocio: {
+    egreso: {
+      "Local": {c:["Alquiler"]},
+      "Proveedores": {c:PROVEEDORES},
+      "Sueldos": {c:[]}, "Publicidad": {c:[]}, "Página web": {c:[]},
+      "Cheques a pagar": {c:[]}, "Impuestos": {c:[]}, "Otros": {c:[]},
+    },
+    ingreso: {
+      "Ventas del día": {c:["Efectivo","Transferencia","Tarjeta","Mercado Pago"]},
+      "Cheques a cobrar": {c:[]}, "Cuenta corriente": {c:[]}, "Otros": {c:[]},
+    },
   },
 };
-const categorias = t => Object.keys(ARBOL[t]);
-const conceptos = (t,c) => (ARBOL[t][c]||{}).c || [];
-const pideLugar = (t,c) => !!(ARBOL[t][c]||{}).lugar;
-const lugarDe = m => LUGARES.includes(m.ambito) ? m.ambito : m.categoria==="Negocio" ? "Negocio" : "General";
+const rama = (l,t) => (ARBOL[l]||{})[t] || {};
+const categorias = (l,t) => Object.keys(rama(l,t));
+const conceptos = (l,t,c) => (rama(l,t)[c]||{}).c || [];
+const pideCasa = (l,t,c) => !!(rama(l,t)[c]||{}).casa;
+/* Qué datos extra pide cada categoría: "obl" obligatorio, "opc" opcional */
+function extraDe(l,t,c){
+  if(l==="negocio"&&t==="egreso"&&c==="Cheques a pagar") return {prov:"opc", banco:"obl"};
+  if(l==="negocio"&&t==="ingreso"&&c==="Cheques a cobrar") return {banco:"opc", libre:true};
+  return {};
+}
+/* A qué libro pertenece algo cargado antes de la separación */
+function libroViejo(tipo, ambito, cat, con){
+  const n = ambito==="Negocio" || ["Negocio","Local","Marketing","Proveedores","Ventas del día","Cheques a cobrar","Cuenta corriente",
+    "Cheque","Transferencia","Cobro de cheque","Cobro de cuenta corriente","Cheques a pagar","Cheque cobrado"].includes(cat)
+    || ["Sueldos","Cheques a pagar","Cheque emitido","Publicidad","Página web"].includes(con) || (tipo==="ingreso" && cat.startsWith("Negocio"));
+  return n ? "negocio" : "personal";
+}
+const lugarDe = m => CASAS.includes(m.ambito) ? m.ambito : "General";
 
 const $ = s => document.querySelector(s);
 const fmt = n => new Intl.NumberFormat("es-AR",{style:"currency",currency:"ARS",maximumFractionDigits:0}).format(n||0);
@@ -179,20 +219,26 @@ const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now()+"-"+Mat
 const h = (tag,cls,txt) => { const e=document.createElement(tag); if(cls) e.className=cls; if(txt!=null) e.textContent=txt; return e; };
 const semaforo = d => d<=1 ? "var(--rojo)" : d<=5 ? "var(--amarillo)" : "var(--verde)";
 const textoVence = d => d < -1 ? `venció hace ${-d} días` : d===-1 ? "venció ayer" : d===0 ? "vence hoy" : d===1 ? "vence mañana" : `vence en ${d} días`;
+const textoDia = dia => dia===ULTIMO_HABIL ? "Último día hábil de cada mes" : "Todos los días "+dia;
+const sum = l => l.reduce((a,x)=>a+x.monto,0);
 
-let uid=null, crudos=[], fijos=[], unsubs=[], movsServ=false, fijosServ=false;
+let uid=null, crudos=[], fijos=[], unsubs=[], movsServ=false, fijosServ=false, plantillaRevisada=null;
 let tab="inicio", cur=new Date(); cur.setDate(1);
-const f = { tipo:"egreso", lugar:"", categoria:null, concepto:null, pendiente:false, editMov:null, editFijo:null };
+let libro = "personal"; try { libro = localStorage.getItem("libro") || "personal"; } catch(e){}
+const f = { libro, tipo:"egreso", casa:"", prov:"", banco:"", categoria:null, concepto:null, pendiente:false, editMov:null, editFijo:null };
 
-/* Lee un movimiento, convirtiendo los del formato viejo (deuda/cobro). */
+/* Lee un movimiento, convirtiendo los del formato viejo. */
 function normalizar(id, m){
   let tipo=m.tipo, pend=!!m.pendiente;
   if(tipo==="deuda"||tipo==="cobro"){ if(m.pagado) return null; tipo = tipo==="deuda"?"egreso":"ingreso"; pend=true; }
   if(tipo!=="ingreso"&&tipo!=="egreso") return null;
   if(typeof m.monto!=="number"||!m.fecha) return null;
-  return { id, tipo, monto:m.monto, ambito:m.ambito||"", categoria:m.categoria||"", concepto:m.concepto||"", fecha:m.fecha,
-    pendiente:pend, detalle:m.detalle||"", creado:m.creado||0, fijoId:m.fijoId||null, anulado:!!m.anulado };
+  const ambito=m.ambito||"", categoria=m.categoria||"", concepto=m.concepto||"";
+  return { id, tipo, monto:m.monto, ambito, categoria, concepto, fecha:m.fecha,
+    pendiente:pend, detalle:m.detalle||"", creado:m.creado||0, fijoId:m.fijoId||null, anulado:!!m.anulado,
+    proveedor:m.proveedor||"", banco:m.banco||"", libro: m.libro || libroViejo(tipo,ambito,categoria,concepto) };
 }
+const normalizarFijo = (id,m) => ({ id, ...m, libro: m.libro || libroViejo(m.tipo,m.ambito||"",m.categoria||"",m.concepto||"") });
 const movs = () => crudos.filter(m=>!m.anulado);
 const aMapa = m => { const {id,...r}=m; return r; };
 
@@ -202,17 +248,35 @@ const guardar = m => setDoc(doc(movsCol(),m.id), aMapa(m));
 const borrar = m => m.fijoId ? guardar({...m, anulado:true}) : deleteDoc(doc(movsCol(),m.id));
 
 /* ---------- fijos ---------- */
-const fechaDelMes = (fj, mesYm) => { const [y,m]=mesYm.split("-").map(Number); const ult=new Date(y,m,0).getDate(); return mesYm+"-"+pad(Math.min(Math.max(fj.dia,1),ult)); };
-const instancia = (fj, mesYm, pendiente=true) => ({ id:`f_${fj.id}_${mesYm}`, tipo:fj.tipo, monto:fj.monto, ambito:fj.ambito, categoria:fj.categoria,
-  concepto:fj.concepto, fecha:fechaDelMes(fj,mesYm), pendiente, detalle:fj.detalle||"", creado:Date.now(), fijoId:fj.id, anulado:false });
+function diaDelMes(dia, mesYm){
+  const [y,m]=mesYm.split("-").map(Number); const ult=new Date(y,m,0).getDate();
+  if(dia!==ULTIMO_HABIL) return Math.min(Math.max(dia,1),ult);
+  let d=new Date(y,m-1,ult); while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1); return d.getDate();
+}
+const fechaDelMes = (fj, mesYm) => mesYm+"-"+pad(diaDelMes(fj.dia, mesYm));
+const instancia = (fj, mesYm, pendiente=true) => ({ id:`f_${fj.id}_${mesYm}`, tipo:fj.tipo, monto:fj.monto, ambito:fj.ambito||"", categoria:fj.categoria,
+  concepto:fj.concepto, fecha:fechaDelMes(fj,mesYm), pendiente, detalle:fj.detalle||"", creado:Date.now(), fijoId:fj.id, anulado:false,
+  proveedor:fj.proveedor||"", banco:fj.banco||"", libro:fj.libro });
 function mesesAGenerar(fj){
-  const hoy=new Date(); const este=ym(hoy); const s=new Date(hoy.getFullYear(),hoy.getMonth()+1,1); const sig=ym(s);
+  const hoy=new Date(); const este=ym(hoy); const sig=ym(new Date(hoy.getFullYear(),hoy.getMonth()+1,1));
   const meses=[este]; const lim=new Date(hoy); lim.setDate(lim.getDate()+7);
   if(parse(fechaDelMes(fj,sig)) <= lim) meses.push(sig);
   return meses.filter(m=>m>=fj.desde);
 }
+/* Fijos del negocio que Pato pidió tener cargados de entrada; se crean una sola vez por cuenta (igual que en el celu). */
+async function cargarPlantilla(){
+  if(plantillaRevisada===uid) return; plantillaRevisada=uid;
+  const mes=ym(new Date());
+  const nuevos=[
+    {id:"plantilla_alquiler", libro:"negocio", tipo:"egreso", monto:1000000, ambito:"", categoria:"Local", concepto:"Alquiler", dia:1, detalle:"Incluye internet", desde:mes, proveedor:"", banco:""},
+    {id:"plantilla_sueldos", libro:"negocio", tipo:"egreso", monto:1900000, ambito:"", categoria:"Sueldos", concepto:"Sueldos", dia:ULTIMO_HABIL, detalle:"", desde:mes, proveedor:"", banco:""},
+  ];
+  const marca=doc(collection(db,"users",uid,"meta"),"plantilla_1");
+  try{ await runTransaction(db, async tx=>{ const s=await tx.get(marca); if(!s.exists()){ nuevos.forEach(fj=>tx.set(doc(fijosCol(),fj.id), aMapa(fj))); tx.set(marca,{hecho:true}); } }); }catch(e){}
+}
 async function generarFijos(){
   if(!uid||!movsServ||!fijosServ) return;
+  await cargarPlantilla();
   const existen=new Set(crudos.map(m=>m.id));
   for(const fj of fijos) for(const mes of mesesAGenerar(fj)){
     const m=instancia(fj,mes); if(existen.has(m.id)) continue;
@@ -223,7 +287,8 @@ async function generarFijos(){
 async function actualizarFijo(fj){
   await setDoc(doc(fijosCol(),fj.id), aMapa(fj));
   for(const m of movs().filter(x=>x.fijoId===fj.id&&x.pendiente))
-    await guardar({...m, monto:fj.monto, ambito:fj.ambito, categoria:fj.categoria, concepto:fj.concepto, detalle:fj.detalle, fecha:fechaDelMes(fj,m.fecha.slice(0,7))});
+    await guardar({...m, libro:fj.libro, monto:fj.monto, ambito:fj.ambito, categoria:fj.categoria, concepto:fj.concepto, detalle:fj.detalle,
+      proveedor:fj.proveedor||"", banco:fj.banco||"", fecha:fechaDelMes(fj,m.fecha.slice(0,7))});
 }
 async function borrarFijo(fj){
   await deleteDoc(doc(fijosCol(),fj.id));
@@ -250,7 +315,7 @@ onAuthStateChanged(auth, u => {
     render();
   }));
   unsubs.push(onSnapshot(fijosCol(), {includeMetadataChanges:true}, snap => {
-    fijos = snap.docs.map(d=>({id:d.id,...d.data()}));
+    fijos = snap.docs.map(d=>normalizarFijo(d.id,d.data()));
     if(!snap.metadata.fromCache){ fijosServ=true; generarFijos(); }
     render();
   }));
@@ -259,87 +324,111 @@ onAuthStateChanged(auth, u => {
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden){ generarFijos(); render(); } });
 
 /* ---------- formulario ---------- */
-function opciones(sel, lista, valor){ sel.innerHTML=""; lista.forEach(o=>{ const op=h("option","",o); op.value=o; sel.append(op); }); sel.value=valor; }
+function opciones(sel, lista, valor, vacio){ sel.innerHTML=""; lista.forEach(o=>{ const op=h("option","",o||vacio||""); op.value=o; sel.append(op); }); sel.value=valor; }
+function segmentos(cont, lista, actual, alElegir){ cont.innerHTML=""; lista.forEach(([v,l])=>{ const b=h("button","",l); b.type="button"; b.setAttribute("aria-pressed",actual===v); b.onclick=()=>alElegir(v); cont.append(b); }); }
 function ajustar(){
-  if(!categorias(f.tipo).includes(f.categoria)) f.categoria=categorias(f.tipo)[0];
-  const l=conceptos(f.tipo,f.categoria);
+  if(!categorias(f.libro,f.tipo).includes(f.categoria)) f.categoria=categorias(f.libro,f.tipo)[0];
+  const l=conceptos(f.libro,f.tipo,f.categoria);
   if(!l.length) f.concepto=""; else if(!l.includes(f.concepto)&&f.concepto!==OTRO) f.concepto=l[0];
+}
+function estadoForm(){
+  const l=conceptos(f.libro,f.tipo,f.categoria);
+  const con = l.length && f.concepto!==OTRO ? f.concepto : "";
+  return { l, con, ex: extraDe(f.libro,f.tipo,f.categoria), conCasa: pideCasa(f.libro,f.tipo,f.categoria),
+    net: f.categoria==="Servicios" && con==="Internet" ? INTERNET[f.casa] : null };
 }
 function drawForm(){
   ajustar();
-  const t=$("#tipos"); t.innerHTML="";
-  [["egreso","Egreso"],["ingreso","Ingreso"]].forEach(([v,l])=>{ const b=h("button","",l); b.type="button"; b.setAttribute("aria-pressed",f.tipo===v); b.onclick=()=>{f.tipo=v; drawForm();}; t.append(b); });
-  opciones($("#categoria"), categorias(f.tipo), f.categoria);
-  const l=conceptos(f.tipo,f.categoria);
-  $("#lconcepto").hidden=!l.length; if(l.length) opciones($("#concepto"), [...l,OTRO], f.concepto);
+  segmentos($("#flibros"), LIBROS, f.libro, v=>{ f.libro=v; drawForm(); });
+  segmentos($("#tipos"), [["egreso","Egreso"],["ingreso","Ingreso"]], f.tipo, v=>{ f.tipo=v; drawForm(); });
+  const {l, ex, conCasa, net} = estadoForm();
+  opciones($("#categoria"), categorias(f.libro,f.tipo), f.categoria);
+  $("#lconcepto").hidden=!l.length; $("#lconcepto").firstChild.textContent = f.categoria==="Proveedores" ? "Proveedor" : "Concepto";
+  if(l.length) opciones($("#concepto"), [...l,OTRO], f.concepto);
   $("#llibre").hidden = !!l.length && f.concepto!==OTRO;
   $("#llibre").firstChild.textContent = l.length ? "¿Cuál?" : "Concepto (opcional)";
-  $("#llugar").hidden = !pideLugar(f.tipo,f.categoria);
-  opciones($("#lugar"), ["", ...LUGARES], f.lugar); $("#lugar").options[0].textContent="Elegí…";
-  const esFijo=!!f.editFijo;
+  $("#llugar").hidden = !conCasa; opciones($("#lugar"), ["", ...CASAS], f.casa, "Elegí…");
+  $("#internet").hidden=!net; if(net) $("#internet").textContent="Empresa: "+net;
+  $("#lbanco").hidden = !ex.banco || ex.libre; $("#lbancolibre").hidden = !(ex.banco && ex.libre);
+  if(ex.banco && !ex.libre) opciones($("#banco"), ["",...BANCOS], BANCOS.includes(f.banco)?f.banco:"", "Elegí…");
+  $("#lprov").hidden = !ex.prov;
+  if(ex.prov) opciones($("#prov"), ["",...PROVEEDORES,OTRO], f.prov===""||PROVEEDORES.includes(f.prov)||f.prov===OTRO ? f.prov : OTRO, "Ninguno");
+  $("#lprovlibre").hidden = !(ex.prov && f.prov===OTRO);
+  $("#tnota").textContent = ex.banco ? "Nº de cheque / nota (opcional)" : "Nota (opcional)";
+  $("#detalle").placeholder = ex.banco ? "Ej: Nº 1234" : "Ej: factura de septiembre";
+  const esFijo=!!f.editFijo, comoFijo = esFijo || (!f.editMov && $("#repite").checked);
   $("#westado").hidden=esFijo;
-  const e=$("#estado"); e.innerHTML="";
-  [[false, f.tipo==="ingreso"?"Ya lo cobré":"Ya lo pagué"],[true,"Pendiente"]].forEach(([v,l])=>{ const b=h("button","",l); b.type="button"; b.setAttribute("aria-pressed",f.pendiente===v); b.onclick=()=>{f.pendiente=v; drawForm();}; e.append(b); });
-  $("#lfecha").textContent = esFijo ? "Día del mes (elegí cualquier fecha con ese día)" : f.pendiente ? "Vence" : "Fecha";
+  segmentos($("#estado"), [[false, f.tipo==="ingreso"?"Ya lo cobré":"Ya lo pagué"],[true,"Pendiente"]], f.pendiente, v=>{ f.pendiente=v; drawForm(); });
   $("#lrepite").hidden = !!(f.editMov||f.editFijo);
-  const dia = $("#fecha").value ? parse($("#fecha").value).getDate() : "";
-  $("#trepite").textContent = "Se repite todos los meses" + ($("#repite").checked && dia ? ` (el día ${dia})` : "");
-  $("#ftitle").textContent = esFijo ? "Editar fijo" : f.editMov ? "Editar" : $("#repite").checked ? "Nuevo fijo mensual" : "Cargar movimiento";
+  $("#lhabil").hidden = !comoFijo;
+  $("#wfecha").hidden = comoFijo && $("#habil").checked;
+  $("#lfecha").textContent = esFijo ? "Día del mes (elegí cualquier fecha con ese día)" : comoFijo ? "Primera vez (después se repite ese día)" : f.pendiente ? "Vence" : "Fecha";
+  $("#ftitle").textContent = esFijo ? "Editar fijo" : f.editMov ? "Editar" : comoFijo ? "Nuevo fijo mensual" : "Cargar movimiento";
   $("#cancel").hidden = !(f.editMov||f.editFijo);
 }
-$("#lugar").onchange=e=>{f.lugar=e.target.value;};
+$("#lugar").onchange=e=>{f.casa=e.target.value; drawForm();};
+$("#banco").onchange=e=>{f.banco=e.target.value;};
+$("#prov").onchange=e=>{f.prov=e.target.value; drawForm();};
 $("#categoria").onchange=e=>{f.categoria=e.target.value; drawForm();};
 $("#concepto").onchange=e=>{f.concepto=e.target.value; drawForm();};
-$("#repite").onchange=drawForm; $("#fecha").onchange=drawForm;
+$("#repite").onchange=drawForm; $("#habil").onchange=drawForm; $("#fecha").onchange=drawForm;
 
 function cargarEnForm(x, esFijo){
-  f.tipo=x.tipo; f.lugar=LUGARES.includes(x.ambito)?x.ambito:""; f.categoria=x.categoria; ajustar();
-  const l=conceptos(f.tipo,f.categoria);
+  f.libro=x.libro; f.tipo=x.tipo; f.casa=CASAS.includes(x.ambito)?x.ambito:""; f.categoria=x.categoria; ajustar();
+  const l=conceptos(f.libro,f.tipo,f.categoria);
   f.concepto = l.includes(x.concepto) ? x.concepto : l.length ? OTRO : "";
   $("#libre").value = (!l.includes(x.concepto) && x.concepto!==x.categoria) ? x.concepto : "";
+  f.banco=x.banco||""; $("#bancolibre").value=x.banco||"";
+  f.prov = !x.proveedor ? "" : PROVEEDORES.includes(x.proveedor) ? x.proveedor : OTRO; $("#provlibre").value = PROVEEDORES.includes(x.proveedor)?"":(x.proveedor||"");
   $("#monto").value=String(x.monto).replace(".",","); $("#detalle").value=x.detalle||"";
   $("#repite").checked=false; $("#ferr").textContent="";
-  if(esFijo){ f.editFijo=x; f.editMov=null; $("#fecha").value=fechaDelMes(x, ym(new Date())); }
-  else { f.editMov=x; f.editFijo=null; f.pendiente=!!x.pendiente; $("#fecha").value=x.fecha; }
+  if(esFijo){ f.editFijo=x; f.editMov=null; $("#habil").checked = x.dia===ULTIMO_HABIL; $("#fecha").value=fechaDelMes(x, ym(new Date())); }
+  else { f.editMov=x; f.editFijo=null; f.pendiente=!!x.pendiente; $("#habil").checked=false; $("#fecha").value=x.fecha; }
   drawForm(); $("#monto").focus(); window.scrollTo({top:0,behavior:"smooth"});
 }
 function resetForm(repite=false){
-  f.editMov=null; f.editFijo=null; f.pendiente=false; f.lugar="";
-  $("#monto").value=""; $("#libre").value=""; $("#detalle").value=""; $("#fecha").value=today(); $("#ferr").textContent=""; $("#repite").checked=repite;
+  f.editMov=null; f.editFijo=null; f.pendiente=false; f.casa=""; f.prov=""; f.banco=""; f.libro=libro;
+  ["#monto","#libre","#detalle","#bancolibre","#provlibre"].forEach(s=>$(s).value="");
+  $("#fecha").value=today(); $("#ferr").textContent=""; $("#repite").checked=repite; $("#habil").checked=false;
   drawForm();
 }
 $("#cancel").onclick = ()=>resetForm();
 $("#frm").onsubmit = async e => {
   e.preventDefault();
+  const err = t => { $("#ferr").textContent=t; };
   const n = parseFloat($("#monto").value.trim().replace(/\./g,"").replace(",","."));
-  const l = conceptos(f.tipo,f.categoria); const libre=$("#libre").value.trim();
-  const conLugar = pideLugar(f.tipo,f.categoria);
-  const concepto = l.length && f.concepto!==OTRO ? f.concepto : libre ? libre : !l.length ? f.categoria : "";
-  if(!(n>0)) { $("#ferr").textContent="Poné un monto mayor a cero."; return; }
-  if(!concepto) { $("#ferr").textContent="Escribí cuál es el concepto."; return; }
-  if(conLugar && !f.lugar) { $("#ferr").textContent="Elegí el lugar."; return; }
+  const {l, con, ex, conCasa, net} = estadoForm(); const libre=$("#libre").value.trim();
+  const concepto = con ? con : libre ? libre : !l.length ? f.categoria : "";
+  if(!(n>0)) return err("Poné un monto mayor a cero.");
+  if(!concepto) return err("Escribí cuál es el concepto.");
+  if(conCasa && !f.casa) return err("Elegí la casa.");
+  const proveedor = net ? net : f.categoria==="Proveedores" ? concepto : !ex.prov ? "" : f.prov===OTRO ? $("#provlibre").value.trim() : f.prov;
+  const banco = !ex.banco ? "" : ex.libre ? $("#bancolibre").value.trim() : f.banco;
+  if(ex.banco==="obl" && !banco) return err("Elegí el banco.");
   const fecha=$("#fecha").value||today(); const detalle=$("#detalle").value.trim();
-  const base={tipo:f.tipo, monto:n, ambito:conLugar?f.lugar:"", categoria:f.categoria, concepto, detalle};
+  const dia = $("#habil").checked ? ULTIMO_HABIL : parse(fecha).getDate();
+  const base={libro:f.libro, tipo:f.tipo, monto:n, ambito:conCasa?f.casa:"", categoria:f.categoria, concepto, detalle, proveedor, banco};
   try{
-    if(f.editFijo){ await actualizarFijo({...f.editFijo, ...base, dia:parse(fecha).getDate()}); }
+    if(f.editFijo){ await actualizarFijo({...f.editFijo, ...base, dia}); }
     else if(f.editMov){ await guardar({...f.editMov, ...base, fecha, pendiente:f.pendiente}); }
     else if($("#repite").checked){
-      const fj={id:uuid(), ...base, dia:parse(fecha).getDate(), desde:fecha.slice(0,7)};
+      const mes = $("#habil").checked ? ym(new Date()) : fecha.slice(0,7);
+      const fj={id:uuid(), ...base, dia, desde:mes};
       await setDoc(doc(fijosCol(),fj.id), aMapa(fj));
-      await guardar(instancia(fj, fecha.slice(0,7), f.pendiente));
+      await guardar(instancia(fj, mes, f.pendiente));
     }
     else await guardar({id:uuid(), ...base, fecha, pendiente:f.pendiente, creado:Date.now(), fijoId:null, anulado:false});
     resetForm();
-  }catch(err){ $("#ferr").textContent="No se pudo guardar. Revisá la conexión."; }
+  }catch(e2){ err("No se pudo guardar. Revisá la conexión."); }
 };
 
 /* ---------- tablero ---------- */
 const bySort = (a,b) => b.fecha.localeCompare(a.fecha) || (b.creado||0)-(a.creado||0);
 function render(){
   if(!uid) return;
-  const todos=movs(), hechos=todos.filter(m=>!m.pendiente), pend=todos.filter(m=>m.pendiente).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  segmentos($("#libros"), LIBROS, libro, v=>{ libro=v; try{localStorage.setItem("libro",v);}catch(e){} if(!f.editMov&&!f.editFijo){ f.libro=v; drawForm(); } render(); });
+  const todos=movs().filter(m=>m.libro===libro), hechos=todos.filter(m=>!m.pendiente), pend=todos.filter(m=>m.pendiente).sort((a,b)=>a.fecha.localeCompare(b.fecha));
   const aPagar=pend.filter(m=>m.tipo==="egreso"), aCobrar=pend.filter(m=>m.tipo==="ingreso");
-  const sum = l => l.reduce((a,x)=>a+x.monto,0);
   const saldo = hechos.reduce((a,x)=>a+(x.tipo==="ingreso"?x.monto:-x.monto),0);
   const mk=ym(cur), delMes=hechos.filter(m=>m.fecha.startsWith(mk));
   const tin=sum(delMes.filter(m=>m.tipo==="ingreso")), tout=sum(delMes.filter(m=>m.tipo==="egreso"));
@@ -347,10 +436,12 @@ function render(){
   $("#tdue").textContent=fmt(sum(aPagar)); $("#tcob").textContent=fmt(sum(aCobrar));
   $("#lentro").textContent="Entró en "+cur.toLocaleDateString("es-AR",{month:"short"});
   $("#sub").textContent="Si se paga y se cobra todo lo pendiente: "+fmt(saldo-sum(aPagar)+sum(aCobrar));
+  document.querySelector(".hero .lbl").textContent = "Saldo " + (libro==="negocio"?"del negocio":"personal");
 
   const tabs=$("#tabs"); tabs.innerHTML="";
   [["inicio","Inicio"],["mes","Mes"],["pend","Pendientes"+(pend.length?" "+pend.length:"")],["fijos","Fijos"]].forEach(([k,l])=>{
-    const b=h("button","",l); b.setAttribute("role","tab"); b.setAttribute("aria-selected",tab===k); b.onclick=()=>{tab=k; if(k==="fijos"&&!f.editMov&&!f.editFijo){ $("#repite").checked=true; drawForm(); } render();}; tabs.append(b);
+    const b=h("button","",l); b.setAttribute("role","tab"); b.setAttribute("aria-selected",tab===k);
+    b.onclick=()=>{tab=k; if(k==="fijos"&&!f.editMov&&!f.editFijo){ $("#repite").checked=true; drawForm(); } render();}; tabs.append(b);
   });
 
   const v=$("#view"); v.innerHTML="";
@@ -374,7 +465,12 @@ function render(){
     const egr=delMes.filter(m=>m.tipo==="egreso"), ing=delMes.filter(m=>m.tipo==="ingreso");
     const grp=(l,k)=>Object.entries(l.reduce((a,x)=>{const kk=k(x); a[kk]=(a[kk]||0)+x.monto; return a;},{})).sort((a,b)=>b[1]-a[1]);
     const g=h("div","grid2");
-    if(egr.length){ g.append(barras("Gastos por lugar", grp(egr,lugarDe), tout)); g.append(barras("Gastos por categoría", grp(egr,x=>x.categoria||"Otros"), tout)); }
+    if(egr.length){
+      if(egr.some(x=>CASAS.includes(x.ambito))) g.append(barras("Gastos por casa", grp(egr,lugarDe), tout));
+      g.append(barras("Gastos por categoría", grp(egr,x=>x.categoria||"Otros"), tout));
+      const aProv=egr.filter(x=>x.proveedor && !Object.values(INTERNET).includes(x.proveedor));
+      if(aProv.length) g.append(barras("Pagos a proveedores", grp(aProv,x=>x.proveedor), sum(aProv)));
+    }
     if(ing.length) g.append(barras("Ingresos", grp(ing,x=>x.categoria||"Otros"), tin, true));
     v.append(g);
     let last=""; delMes.sort(bySort).forEach(m=>{ if(m.fecha!==last){ last=m.fecha; sec(fdate(m.fecha)); } v.append(row(m)); });
@@ -383,8 +479,8 @@ function render(){
     sec("A cobrar · "+fmt(sum(aCobrar))); if(!aCobrar.length) empty("No tenés nada pendiente de cobrar. Cargá un ingreso como “Pendiente” con su fecha, por ejemplo un cheque."); aCobrar.forEach(m=>v.append(row(m)));
   } else {
     sec("Se cargan solos todos los meses");
-    const l=[...fijos].sort((a,b)=>(a.tipo==="ingreso"?0:1)-(b.tipo==="ingreso"?0:1)||a.dia-b.dia);
-    if(!l.length) empty("Todavía no tenés fijos. Cargalos en el formulario de la izquierda con “Se repite todos los meses” tildado.");
+    const l=fijos.filter(x=>x.libro===libro).sort((a,b)=>(a.tipo==="ingreso"?0:1)-(b.tipo==="ingreso"?0:1)||(a.dia||99)-(b.dia||99));
+    if(!l.length) empty("Todavía no tenés fijos acá. Cargalos en el formulario de la izquierda con “Se repite todos los meses” tildado.");
     l.forEach(fj=>v.append(rowFijo(fj)));
   }
 }
@@ -394,13 +490,14 @@ function barras(titulo, lista, total, ingreso=false){
   lista.forEach(([c,m])=>{ const b=h("div","bar"+(ingreso?" in":"")); b.append(h("span","",c),h("span","num",fmt(m))); const i=h("i"); const bb=h("b"); bb.style.width=(total?m/total*100:0)+"%"; i.append(bb); b.append(i); box.append(b); });
   return box;
 }
-function donde(x){ return [x.categoria!==x.concepto?x.categoria:"", LUGARES.includes(x.ambito)?x.ambito:""].filter(Boolean).join(" · "); }
+function donde(x){ return [x.categoria!==x.concepto?x.categoria:"", CASAS.includes(x.ambito)?x.ambito:""].filter(Boolean).join(" · "); }
 function botonBorrar(fn){ const d=h("button","btn del","Borrar"); d.onclick=()=>{ if(d.dataset.sure) fn(); else { d.dataset.sure=1; d.textContent="¿Seguro?"; setTimeout(()=>{delete d.dataset.sure; d.textContent="Borrar";},3000); } }; return d; }
 function row(x){
   const r=h("div","row"); const ing=x.tipo==="ingreso"; const d=dias(x.fecha);
   r.style.setProperty("--franja", x.pendiente ? semaforo(d) : ing ? "var(--in)" : "var(--out)");
   const t=h("div","txt"); t.append(h("div","c",x.concepto));
-  const sub=[donde(x),x.detalle].filter(Boolean).join(" · "); if(sub) t.append(h("div","s",sub));
+  const prov = x.proveedor && x.proveedor!==x.concepto ? x.proveedor : "";
+  const sub=[donde(x),x.banco,prov,x.detalle].filter(Boolean).join(" · "); if(sub) t.append(h("div","s",sub));
   if(x.pendiente) t.append(h("div","vence",textoVence(d)+" · "+fdate(x.fecha)));
   r.append(t, h("div","num amt "+x.tipo,(ing?"+":"−")+fmt(x.monto)));
   const a=h("div","acts");
@@ -410,7 +507,9 @@ function row(x){
 }
 function rowFijo(fj){
   const r=h("div","row"); const ing=fj.tipo==="ingreso"; r.style.setProperty("--franja", ing?"var(--in)":"var(--out)");
-  const t=h("div","txt"); t.append(h("div","c",fj.concepto)); const s=donde(fj); if(s) t.append(h("div","s",s)); t.append(h("div","s","Todos los días "+fj.dia));
+  const t=h("div","txt"); t.append(h("div","c",fj.concepto));
+  const prov = fj.proveedor && fj.proveedor!==fj.concepto ? fj.proveedor : "";
+  const s=[donde(fj),fj.banco,prov,fj.detalle].filter(Boolean).join(" · "); if(s) t.append(h("div","s",s)); t.append(h("div","s",textoDia(fj.dia)));
   r.append(t, h("div","num amt "+fj.tipo,(ing?"+":"−")+fmt(fj.monto)));
   const a=h("div","acts"); const e=h("button","btn","Editar"); e.onclick=()=>cargarEnForm(fj,true); a.append(e, botonBorrar(()=>borrarFijo(fj)));
   r.append(a); return r;
@@ -418,5 +517,6 @@ function rowFijo(fj){
 
 resetForm();
 </script>
+
 </body>
 </html>
