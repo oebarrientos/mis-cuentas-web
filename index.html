@@ -101,13 +101,15 @@ input.amount{font-family:var(--f-num);font-size:1.25rem}
     <div class="col">
       <section class="hero">
         <div class="heromes"><button type="button" id="hprev" aria-label="Mes anterior">‹</button><span class="lbl" id="hlbl">Resultado del mes</span><button type="button" id="hnext" aria-label="Mes siguiente">›</button></div>
-        <div><div class="big num" id="saldo">$ 0</div><small id="sub"></small></div>
-        <div class="meter"><b id="meter"></b></div>
+        <div class="big num" id="tcomp">$ 0</div>
         <div class="quad">
-          <div><span class="lbl">A cubrir</span><span class="num" id="tcomp"></span></div>
-          <div><span class="lbl">Entró</span><span class="num" id="tin"></span></div>
           <div><span class="lbl">Ya pagado</span><span class="num" id="tout"></span></div>
           <div><span class="lbl">Falta pagar</span><span class="num" id="tdue"></span></div>
+        </div>
+        <div class="meter"><b id="meter"></b></div>
+        <div class="quad">
+          <div><span class="lbl">Entradas del mes</span><span class="num" id="tin"></span></div>
+          <div><span class="lbl">Resultado</span><span class="num" id="saldo"></span></div>
         </div>
         <small id="sub2"></small>
       </section>
@@ -442,10 +444,9 @@ function render(){
   const finMes = iso(new Date(cur.getFullYear(), cur.getMonth()+1, 0));
   const porPagarMes = sum(aPagar.filter(m=>m.fecha<=finMes)), porCobrarMes = sum(aCobrar.filter(m=>m.fecha<=finMes));
   const comp = tout + porPagarMes, res = tin - comp;
-  $("#hlbl").textContent = "Resultado de "+cur.toLocaleDateString("es-AR",{month:"long"})+" · "+(libro==="negocio"?"Negocio":"Personal");
+  $("#hlbl").textContent = "Gastos de "+cur.toLocaleDateString("es-AR",{month:"long"})+" · "+(libro==="negocio"?"Negocio":"Personal");
   $("#saldo").textContent=(res<0?"−":"+")+fmt(Math.abs(res));
-  $("#sub").textContent = res<0 ? `Te faltan ${fmt(-res)} de entradas para cubrir el mes` : `Mes cubierto, te sobran ${fmt(res)}`;
-  $("#meter").style.width = (comp>0 ? Math.min(100, tin/comp*100) : 100)+"%";
+  $("#meter").style.width = (comp>0 ? Math.min(100, tout/comp*100) : 100)+"%";
   $("#tcomp").textContent=fmt(comp); $("#tin").textContent=fmt(tin); $("#tout").textContent=fmt(tout); $("#tdue").textContent=fmt(porPagarMes);
   $("#sub2").textContent = `Por cobrar este mes ${fmt(porCobrarMes)} · Saldo acumulado ${fmt(saldo)}`;
 
