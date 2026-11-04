@@ -243,7 +243,7 @@ const sum = l => l.reduce((a,x)=>a+x.monto,0);
 
 let inicio={};
 let uid=null, crudos=[], fijos=[], unsubs=[], movsServ=false, fijosServ=false, plantillaRevisada=null;
-let tab="inicio", cur=new Date(); cur.setDate(1);
+let tab="mes", cur=new Date(); cur.setDate(1);
 let libro = "personal"; try { libro = localStorage.getItem("libro") || "personal"; } catch(e){}
 const f = { libro, tipo:"egreso", casa:"", prov:"", banco:"", categoria:null, concepto:null, pendiente:false, editMov:null, editFijo:null };
 
@@ -475,7 +475,7 @@ function render(){
   $("#sub2").textContent = `Por cobrar este mes ${fmt(porCobrarMes)} · Saldo acumulado${desde?" desde el "+parse(desde).toLocaleDateString("es-AR",{day:"numeric",month:"short"}):""} ${fmt(saldo)}`;
 
   const tabs=$("#tabs"); tabs.innerHTML="";
-  [["inicio","Inicio"],["mes","Mes"],["pend","Pendientes"+(pend.length?" "+pend.length:"")],["fijos","Fijos"]].forEach(([k,l])=>{
+  [["mes","Mes"],["fijos","Fijos"]].forEach(([k,l])=>{
     const b=h("button","",l); b.setAttribute("role","tab"); b.setAttribute("aria-selected",tab===k);
     b.onclick=()=>{tab=k; if(k==="fijos"&&!f.editMov&&!f.editFijo){ $("#repite").checked=true; drawForm(); } render();}; tabs.append(b);
   });
@@ -483,20 +483,18 @@ function render(){
   const v=$("#view"); v.innerHTML="";
   const empty = t => v.append(h("div","empty",t));
   const sec = t => v.append(h("div","day",t));
-  if(tab==="inicio"){
-    const ley=h("div","leyenda"); [["var(--verde)","Más de 5 días"],["var(--amarillo)","De 2 a 5 días"],["var(--rojo)","Mañana, hoy o vencido"]].forEach(([c,t])=>{ const s=h("span","",t); s.style.setProperty("--c",c); ley.append(s); });
-    const prox=pend.filter(m=>dias(m.fecha)<=7);
-    sec("Próximos 7 días"); v.append(ley);
-    if(!prox.length) empty("No vence nada en los próximos 7 días.");
-    prox.forEach(m=>v.append(row(m)));
-    const t=today(), deHoy=hechos.filter(m=>m.fecha===t).sort(bySort);
-    sec("Movimientos de hoy · "+fdate(t));
-    if(!deHoy.length) empty("Hoy no cargaste nada todavía.");
-    deHoy.forEach(m=>v.append(row(m)));
-    if(deHoy.length) sec(`Hoy entró ${fmt(sum(deHoy.filter(m=>m.tipo==="ingreso")))} · salió ${fmt(sum(deHoy.filter(m=>m.tipo==="egreso")))}`);
-  } else if(tab==="mes"){
+  if(tab==="mes"){
     const mb=h("div","month"); const pv=h("button","","‹"), nx=h("button","","›"), lb=h("span","",cur.toLocaleDateString("es-AR",{month:"long",year:"numeric"}));
     pv.onclick=()=>{cur.setMonth(cur.getMonth()-1);render();}; nx.onclick=()=>{cur.setMonth(cur.getMonth()+1);render();}; mb.append(pv,lb,nx); v.append(mb);
+    if(mk===ym(new Date())){
+      const t=today(), deHoy=hechos.filter(m=>m.fecha===t).sort(bySort);
+      const hb=h("div","box hoy"); const fila=h("div","bar"); const nom=h("span","nom");
+      if(deHoy.length){ const clave="hoy"; const ab=abiertos.has(clave); const tg=h("button","btn mas",ab?"−":"+"); tg.type="button"; tg.onclick=()=>{ ab?abiertos.delete(clave):abiertos.add(clave); render(); }; nom.append(tg); }
+      const tx=h("span",""); tx.append(h("div","day","Hoy · "+fdate(t)), h("div","", deHoy.length ? `Entró ${fmt(sum(deHoy.filter(m=>m.tipo==="ingreso")))} · Salió ${fmt(sum(deHoy.filter(m=>m.tipo==="egreso")))}` : "Todavía no cargaste nada hoy"));
+      nom.append(tx); fila.append(nom); hb.append(fila);
+      if(deHoy.length && abiertos.has("hoy")){ const d=h("div","detalle"); deHoy.forEach(m=>d.append(row(m))); hb.append(d); }
+      v.append(hb);
+    }
     const todoV=[...vencidosAntes,...todoMes];
     if(!todoV.length){ empty("No hay nada cargado para este mes."); return; }
     const egr=todoV.filter(m=>m.tipo==="egreso"), ing=todoV.filter(m=>m.tipo==="ingreso");
@@ -512,9 +510,6 @@ function render(){
     if(ing.length) g.append(barras("Ingresos", lineas(ing,x=>x.categoria||"Otros"), true));
     v.append(g);
     v.append(cronograma(todoV.filter(m=>m.pendiente)));
-  } else if(tab==="pend"){
-    sec("A pagar · "+fmt(sum(aPagar))); if(!aPagar.length) empty("No tenés nada pendiente de pagar."); aPagar.forEach(m=>v.append(row(m)));
-    sec("A cobrar · "+fmt(sum(aCobrar))); if(!aCobrar.length) empty("No tenés nada pendiente de cobrar. Cargá un ingreso como “Pendiente” con su fecha, por ejemplo un cheque."); aCobrar.forEach(m=>v.append(row(m)));
   } else {
     sec("Se cargan solos todos los meses");
     const l=fijos.filter(x=>x.libro===libro).sort((a,b)=>(a.tipo==="ingreso"?0:1)-(b.tipo==="ingreso"?0:1)||(a.dia||99)-(b.dia||99));
