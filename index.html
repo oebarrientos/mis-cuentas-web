@@ -72,7 +72,8 @@ input.amount{font-family:var(--f-num);font-size:1.25rem}
 .acts{display:flex;gap:6px;flex-wrap:wrap}
 .empty{background:var(--card);border:1px dashed var(--line);border-radius:12px;padding:24px;text-align:center;color:var(--muted)}
 .bar{display:grid;grid-template-columns:1fr auto;gap:3px 10px;font-size:.9rem}
-.bar i{grid-column:1/-1;height:6px;border-radius:3px;background:var(--out-bg);overflow:hidden}.bar i b{display:block;height:100%;background:var(--out)}
+.bar i{grid-column:1/-1;height:8px;border-radius:4px;background:var(--out-bg);overflow:hidden;display:flex}.bar i b{display:block;height:100%;background:var(--out)}.bar i b.falta{opacity:.35}
+.bar small{grid-column:1/-1;color:var(--muted);font-size:.78rem}
 .bar.in i{background:var(--in-bg)}.bar.in i b{background:var(--in)}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
 .leyenda{display:flex;gap:14px;flex-wrap:wrap;font-size:.8rem;color:var(--muted)}
@@ -487,20 +488,21 @@ function render(){
   } else if(tab==="mes"){
     const mb=h("div","month"); const pv=h("button","","‹"), nx=h("button","","›"), lb=h("span","",cur.toLocaleDateString("es-AR",{month:"long",year:"numeric"}));
     pv.onclick=()=>{cur.setMonth(cur.getMonth()-1);render();}; nx.onclick=()=>{cur.setMonth(cur.getMonth()+1);render();}; mb.append(pv,lb,nx); v.append(mb);
+    const egr=todoMes.filter(m=>m.tipo==="egreso"), ing=todoMes.filter(m=>m.tipo==="ingreso");
+    const g=h("div","grid2");
+    if(libro==="negocio"){
+      const aProv=egr.filter(x=>x.proveedor), resto=egr.filter(x=>!x.proveedor);
+      if(aProv.length) g.append(barras("Proveedores", lineas(aProv,x=>x.proveedor)));
+      if(resto.length) g.append(barras("Otros gastos del negocio", lineas(resto,x=>x.categoria||"Otros")));
+    } else if(egr.length){
+      g.append(barras("Gastos por categoría", lineas(egr,x=>x.categoria||"Otros")));
+      const enCasas=egr.filter(x=>CASAS.includes(x.ambito)); if(enCasas.length) g.append(barras("Gastos por casa", lineas(enCasas,x=>x.ambito)));
+    }
+    if(ing.length) g.append(barras("Ingresos", lineas(ing,x=>x.categoria||"Otros"), true));
+    if(g.children.length) v.append(g);
     if(vencidosAntes.length){ sec("Vencido de meses anteriores · "+fmt(sum(vencidosAntes))); vencidosAntes.forEach(m=>v.append(row(m))); }
     if(!todoMes.length){ empty("No hay nada cargado para este mes."); return; }
     let last=""; todoMes.forEach(m=>{ if(m.fecha!==last){ last=m.fecha; sec(fdate(m.fecha)); } v.append(row(m)); });
-    const egr=todoMes.filter(m=>m.tipo==="egreso"), ing=todoMes.filter(m=>m.tipo==="ingreso"); const totE=sum(egr);
-    const grp=(l,k)=>Object.entries(l.reduce((a,x)=>{const kk=k(x); a[kk]=(a[kk]||0)+x.monto; return a;},{})).sort((a,b)=>b[1]-a[1]);
-    const g=h("div","grid2");
-    if(egr.length){
-      if(egr.some(x=>CASAS.includes(x.ambito))) g.append(barras("Gastos por casa", grp(egr,lugarDe), totE));
-      g.append(barras("Gastos por categoría", grp(egr,x=>x.categoria||"Otros"), totE));
-      const aProv=egr.filter(x=>x.proveedor && !Object.values(INTERNET).includes(x.proveedor));
-      if(aProv.length) g.append(barras("Pagos a proveedores", grp(aProv,x=>x.proveedor), sum(aProv)));
-    }
-    if(ing.length) g.append(barras("Ingresos", grp(ing,x=>x.categoria||"Otros"), sum(ing), true));
-    v.append(g);
   } else if(tab==="pend"){
     sec("A pagar · "+fmt(sum(aPagar))); if(!aPagar.length) empty("No tenés nada pendiente de pagar."); aPagar.forEach(m=>v.append(row(m)));
     sec("A cobrar · "+fmt(sum(aCobrar))); if(!aCobrar.length) empty("No tenés nada pendiente de cobrar. Cargá un ingreso como “Pendiente” con su fecha, por ejemplo un cheque."); aCobrar.forEach(m=>v.append(row(m)));
@@ -512,9 +514,17 @@ function render(){
   }
 }
 
-function barras(titulo, lista, total, ingreso=false){
+/* Un renglón por grupo: lo ya pagado (o cobrado) y lo que falta */
+function lineas(l, clave){
+  const m={}; l.forEach(x=>{ const k=clave(x); m[k]=m[k]||{n:k,hecho:0,falta:0}; m[k][x.pendiente?"falta":"hecho"]+=x.monto; });
+  return Object.values(m).sort((a,b)=>(b.hecho+b.falta)-(a.hecho+a.falta));
+}
+function barras(titulo, lista, ingreso=false){
   const box=h("div","box"); box.append(h("div","day",titulo));
-  lista.forEach(([c,m])=>{ const b=h("div","bar"+(ingreso?" in":"")); b.append(h("span","",c),h("span","num",fmt(m))); const i=h("i"); const bb=h("b"); bb.style.width=(total?m/total*100:0)+"%"; i.append(bb); b.append(i); box.append(b); });
+  const max=Math.max(...lista.map(x=>x.hecho+x.falta),0);
+  lista.forEach(x=>{ const b=h("div","bar"+(ingreso?" in":"")); b.append(h("span","",x.n),h("span","num",fmt(x.hecho+x.falta)));
+    const i=h("i"); const bh=h("b"); bh.style.width=(max?x.hecho/max*100:0)+"%"; const bf=h("b","falta"); bf.style.width=(max?x.falta/max*100:0)+"%"; i.append(bh,bf); b.append(i);
+    b.append(h("small","", (ingreso?"Cobrado ":"Pagado ")+fmt(x.hecho)+(x.falta?" · Falta "+fmt(x.falta):""))); box.append(b); });
   return box;
 }
 function donde(x){ return [x.categoria!==x.concepto?x.categoria:"", CASAS.includes(x.ambito)?x.ambito:""].filter(Boolean).join(" · "); }
