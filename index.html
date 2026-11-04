@@ -505,15 +505,15 @@ function render(){
   if(tab==="mes"){
     const mb=h("div","month"); const pv=h("button","","‹"), nx=h("button","","›"), lb=h("span","",cur.toLocaleDateString("es-AR",{month:"long",year:"numeric"}));
     pv.onclick=()=>{cur.setMonth(cur.getMonth()-1);render();}; nx.onclick=()=>{cur.setMonth(cur.getMonth()+1);render();}; mb.append(pv,lb,nx); v.append(mb);
-    if(mk===ym(new Date())){
-      const t=today(), deHoy=hechos.filter(m=>m.fecha===t).sort(bySort);
+    const desplegable=(clave,titulo,texto,hijos)=>{
       const hb=h("div","box hoy"); const fila=h("div","bar"); const nom=h("span","nom");
-      if(deHoy.length){ const clave="hoy"; const ab=abiertos.has(clave); const tg=h("button","btn mas",ab?"−":"+"); tg.type="button"; tg.onclick=()=>{ ab?abiertos.delete(clave):abiertos.add(clave); render(); }; nom.append(tg); }
-      const tx=h("span",""); tx.append(h("div","day","Hoy · "+fdate(t)), h("div","", deHoy.length ? `Entró ${fmt(sum(deHoy.filter(m=>m.tipo==="ingreso")))} · Salió ${fmt(sum(deHoy.filter(m=>m.tipo==="egreso")))}` : "Todavía no cargaste nada hoy"));
-      nom.append(tx); fila.append(nom); hb.append(fila);
-      if(deHoy.length && abiertos.has("hoy")){ const d=h("div","detalle"); deHoy.forEach(m=>d.append(row(m))); hb.append(d); }
+      if(hijos.length){ const ab=abiertos.has(clave); const tg=h("button","btn mas",ab?"−":"+"); tg.type="button"; tg.onclick=()=>{ ab?abiertos.delete(clave):abiertos.add(clave); render(); }; nom.append(tg); }
+      const tx=h("span",""); tx.append(h("div","day",titulo), h("div","",texto)); nom.append(tx); fila.append(nom); hb.append(fila);
+      if(hijos.length && abiertos.has(clave)){ const d=h("div","detalle"); hijos.forEach(x=>d.append(x)); hb.append(d); }
       v.append(hb);
-    }
+    };
+    { const lm=[...delMes].sort((a,b)=>b.fecha.localeCompare(a.fecha)||(b.creado||0)-(a.creado||0));
+      desplegable("movMes","Movimientos de "+cur.toLocaleDateString("es-AR",{month:"long"}), lm.length?`Entró ${fmt(tin)} · Salió ${fmt(tout)}`:"Todavía no entró ni salió nada este mes", lm.map(row)); }
     const todoV=[...vencidosAntes,...todoMes];
     if(!todoV.length){ empty("No hay nada cargado para este mes."); return; }
     const egr=todoV.filter(m=>m.tipo==="egreso"), ing=todoV.filter(m=>m.tipo==="ingreso");
@@ -530,10 +530,18 @@ function render(){
     v.append(g);
     v.append(cronograma(todoV.filter(m=>m.pendiente)));
   } else {
-    sec("Se cargan solos todos los meses");
-    const l=fijos.filter(x=>x.libro===libro).sort((a,b)=>(a.tipo==="ingreso"?0:1)-(b.tipo==="ingreso"?0:1)||(a.dia||99)-(b.dia||99));
-    if(!l.length) empty("Todavía no tenés fijos acá. Cargalos en el formulario de la izquierda con “Se repite todos los meses” tildado.");
-    l.forEach(fj=>v.append(rowFijo(fj)));
+    const l=fijos.filter(x=>x.libro===libro).sort((a,b)=>(a.dia||99)-(b.dia||99));
+    if(!l.length){ empty("Todavía no tenés fijos acá. Cargalos en el formulario de la izquierda con “Se repite todos los meses” tildado."); return; }
+    const este=ym(new Date());
+    [["egreso","Gastos fijos","fijosE"],["ingreso","Ingresos fijos","fijosI"]].forEach(([tp,tit,clave])=>{
+      const g=l.filter(x=>x.tipo===tp); if(!g.length) return;
+      const tot=g.filter(x=>aplica(x,este)).reduce((a,x)=>a+x.monto,0);
+      const hb=h("div","box hoy"); const fila=h("div","bar"); const nom=h("span","nom");
+      const ab=abiertos.has(clave); const tg=h("button","btn mas",ab?"−":"+"); tg.type="button"; tg.onclick=()=>{ ab?abiertos.delete(clave):abiertos.add(clave); render(); }; nom.append(tg);
+      const tx=h("span",""); tx.append(h("div","day",tit+" · "+g.length), h("div","",fmt(tot)+" por mes")); nom.append(tx); fila.append(nom); hb.append(fila);
+      if(ab){ const d=h("div","detalle"); g.forEach(fj=>d.append(rowFijo(fj))); hb.append(d); }
+      v.append(hb);
+    });
   }
 }
 
