@@ -142,6 +142,8 @@ input.amount{font-family:var(--f-num);font-size:1.25rem}
         <div id="westado"><div style="font-size:.8rem;color:var(--muted);font-weight:600;margin-bottom:6px">Estado</div><div class="seg" id="estado"></div></div>
         <label class="chk" id="lrepite"><input type="checkbox" id="repite"> <span>Se repite todos los meses</span></label>
         <label class="chk" id="lhabil"><input type="checkbox" id="habil"> <span>El último día hábil de cada mes</span></label>
+        <div class="seg" id="durac"></div>
+        <label id="lcuotas"><span id="tcuotas">¿Cuántas cuotas? (contando esta)</span><input id="cuotas" inputmode="numeric" maxlength="3" placeholder="Ej: 12"></label>
         <label id="wfecha"><span id="lfecha">Fecha</span><input type="date" id="fecha"></label>
         <div class="err" id="ferr"></div>
         <div style="display:flex;gap:8px"><button type="button" class="btn del" id="fborrar" hidden>Borrar</button><button type="button" class="btn" id="cancel" hidden>Cancelar</button><button class="btn pri" style="flex:1;padding:12px">Guardar</button></div>
@@ -185,7 +187,8 @@ const ARBOL = {
       "Mantenimiento": {c:[], casa:true},
       "Vehículos": {c:["Combustible","Service"]},
       "Comida / Súper": {c:[]}, "Chicos": {c:[]}, "Educación": {c:[]}, "Salud": {c:[]}, "Salidas": {c:[]},
-      "Deudas": {c:["Cuotas de préstamos","Tarjeta","Impuestos"]},
+      "Créditos": {c:["Vehículo","Refinanciación de deuda","Electrodomésticos","Personal"]},
+      "Deudas": {c:["Tarjeta","Impuestos"]},
       "Otros": {c:[]},
     },
     ingreso: {
@@ -274,14 +277,19 @@ function diaDelMes(dia, mesYm){
   let d=new Date(y,m-1,ult); while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1); return d.getDate();
 }
 const fechaDelMes = (fj, mesYm) => mesYm+"-"+pad(diaDelMes(fj.dia, mesYm));
+/* Cuotas: número de cuota de un mes (1 = mes de inicio) y si corresponde generarla */
+const numeroCuota = (fj, mesYm) => { const [a,b]=fj.desde.split("-").map(Number), [c,d]=mesYm.split("-").map(Number); return (c-a)*12+(d-b)+1; };
+const aplica = (fj, mesYm) => { const n=numeroCuota(fj,mesYm); return n>=1 && (!(fj.cuotas>0) || n<=fj.cuotas); };
+const ultimoMes = fj => { if(!(fj.cuotas>0)) return null; const [a,b]=fj.desde.split("-").map(Number); return ym(new Date(a,b-1+fj.cuotas-1,1)); };
 const instancia = (fj, mesYm, pendiente=true) => ({ id:`f_${fj.id}_${mesYm}`, tipo:fj.tipo, monto:fj.monto, ambito:fj.ambito||"", categoria:fj.categoria,
-  concepto:fj.concepto, fecha:fechaDelMes(fj,mesYm), pendiente, detalle:fj.detalle||"", creado:Date.now(), fijoId:fj.id, anulado:false,
+  concepto:fj.concepto, fecha:fechaDelMes(fj,mesYm), pendiente, detalle:[fj.detalle||"", fj.cuotas>0?`Cuota ${numeroCuota(fj,mesYm)} de ${fj.cuotas}`:""].filter(Boolean).join(" · "),
+  creado:Date.now(), fijoId:fj.id, anulado:false,
   proveedor:fj.proveedor||"", banco:fj.banco||"", libro:fj.libro });
 function mesesAGenerar(fj){
   const hoy=new Date(); const este=ym(hoy); const sig=ym(new Date(hoy.getFullYear(),hoy.getMonth()+1,1));
   const meses=[este]; const lim=new Date(hoy); lim.setDate(lim.getDate()+7);
   if(parse(fechaDelMes(fj,sig)) <= lim) meses.push(sig);
-  return meses.filter(m=>m>=fj.desde);
+  return meses.filter(m=>aplica(fj,m));
 }
 /* Fijos del negocio que Pato pidió tener cargados de entrada; se crean una sola vez por cuenta (igual que en el celu). */
 async function cargarPlantilla(){
@@ -306,9 +314,13 @@ async function generarFijos(){
 }
 async function actualizarFijo(fj){
   await setDoc(doc(fijosCol(),fj.id), aMapa(fj));
-  for(const m of movs().filter(x=>x.fijoId===fj.id&&x.pendiente))
-    await guardar({...m, libro:fj.libro, monto:fj.monto, ambito:fj.ambito, categoria:fj.categoria, concepto:fj.concepto, detalle:fj.detalle,
-      proveedor:fj.proveedor||"", banco:fj.banco||"", fecha:fechaDelMes(fj,m.fecha.slice(0,7))});
+  for(const m of movs().filter(x=>x.fijoId===fj.id&&x.pendiente)){
+    const mes=m.fecha.slice(0,7);
+    if(!aplica(fj,mes)){ await borrar(m); continue; }
+    const n=instancia(fj,mes);
+    await guardar({...m, libro:fj.libro, monto:fj.monto, ambito:fj.ambito, categoria:fj.categoria, concepto:fj.concepto, detalle:n.detalle,
+      proveedor:fj.proveedor||"", banco:fj.banco||"", fecha:n.fecha});
+  }
 }
 async function borrarFijo(fj){
   await deleteDoc(doc(fijosCol(),fj.id));
@@ -382,6 +394,10 @@ function drawForm(){
   segmentos($("#estado"), [[false, f.tipo==="ingreso"?"Ya lo cobré":"Ya lo pagué"],[true,"Pendiente"]], f.pendiente, v=>{ f.pendiente=v; drawForm(); });
   $("#lrepite").hidden = !!(f.editMov||f.editFijo);
   $("#lhabil").hidden = !comoFijo;
+  $("#durac").hidden = !comoFijo;
+  segmentos($("#durac"), [[false,"Todos los meses"],[true,"Por cantidad de cuotas"]], f.porCuotas, v=>{ f.porCuotas=v; drawForm(); });
+  $("#lcuotas").hidden = !(comoFijo && f.porCuotas);
+  $("#tcuotas").textContent = esFijo ? "Cantidad total de cuotas" : "¿Cuántas cuotas? (contando esta)";
   $("#wfecha").hidden = comoFijo && $("#habil").checked;
   $("#lfecha").textContent = esFijo ? "Día del mes (elegí cualquier fecha con ese día)" : comoFijo ? "Primera vez (después se repite ese día)" : f.pendiente ? "Vence" : "Fecha";
   $("#ftitle").textContent = esFijo ? "Editar fijo" : f.editMov ? "Editar" : comoFijo ? "Nuevo fijo mensual" : "Cargar movimiento";
@@ -405,14 +421,14 @@ function cargarEnForm(x, esFijo){
   f.prov = !x.proveedor ? "" : PROVEEDORES.includes(x.proveedor) ? x.proveedor : OTRO; $("#provlibre").value = PROVEEDORES.includes(x.proveedor)?"":(x.proveedor||"");
   $("#monto").value=String(x.monto).replace(".",","); $("#detalle").value=x.detalle||"";
   $("#repite").checked=false; $("#ferr").textContent="";
-  if(esFijo){ f.editFijo=x; f.editMov=null; $("#habil").checked = x.dia===ULTIMO_HABIL; $("#fecha").value=fechaDelMes(x, ym(new Date())); }
+  if(esFijo){ f.editFijo=x; f.editMov=null; $("#habil").checked = x.dia===ULTIMO_HABIL; f.porCuotas = x.cuotas>0; $("#cuotas").value = x.cuotas>0 ? x.cuotas : ""; $("#fecha").value=fechaDelMes(x, ym(new Date())); }
   else { f.editMov=x; f.editFijo=null; f.pendiente=!!x.pendiente; $("#habil").checked=false; $("#fecha").value=x.fecha; }
   drawForm(); $("#monto").focus(); window.scrollTo({top:0,behavior:"smooth"});
 }
 function resetForm(repite=false){
   f.editMov=null; f.editFijo=null; f.pendiente=false; f.casa=""; f.prov=""; f.banco=""; f.libro=libro;
   ["#monto","#libre","#detalle","#bancolibre","#provlibre"].forEach(s=>$(s).value="");
-  $("#fecha").value=today(); $("#ferr").textContent=""; $("#repite").checked=repite; $("#habil").checked=false;
+  $("#fecha").value=today(); $("#ferr").textContent=""; $("#repite").checked=repite; $("#habil").checked=false; f.porCuotas=false; $("#cuotas").value="";
   drawForm();
 }
 $("#cancel").onclick = ()=>resetForm();
@@ -430,13 +446,16 @@ $("#frm").onsubmit = async e => {
   if(ex.banco==="obl" && !banco) return err("Elegí el banco.");
   const fecha=$("#fecha").value||today(); const detalle=$("#detalle").value.trim();
   const dia = $("#habil").checked ? ULTIMO_HABIL : parse(fecha).getDate();
+  const comoFijo = !!f.editFijo || (!f.editMov && $("#repite").checked);
+  const cuotas = comoFijo && f.porCuotas ? parseInt($("#cuotas").value,10)||0 : 0;
+  if(comoFijo && f.porCuotas && cuotas<=0) return err("Poné cuántas cuotas son.");
   const base={libro:f.libro, tipo:f.tipo, monto:n, ambito:conCasa?f.casa:"", categoria:f.categoria, concepto, detalle, proveedor, banco};
   try{
-    if(f.editFijo){ await actualizarFijo({...f.editFijo, ...base, dia}); }
+    if(f.editFijo){ await actualizarFijo({...f.editFijo, ...base, dia, cuotas}); }
     else if(f.editMov){ await guardar({...f.editMov, ...base, fecha, pendiente:f.pendiente}); }
     else if($("#repite").checked){
       const mes = $("#habil").checked ? ym(new Date()) : fecha.slice(0,7);
-      const fj={id:uuid(), ...base, dia, desde:mes};
+      const fj={id:uuid(), ...base, dia, desde:mes, cuotas};
       await setDoc(doc(fijosCol(),fj.id), aMapa(fj));
       await guardar(instancia(fj, mes, f.pendiente));
     }
@@ -457,7 +476,7 @@ function render(){
   const mk=ym(cur), delMes=hechos.filter(m=>m.fecha.startsWith(mk));
   /* Para meses que vienen, los fijos todavía no generados se muestran proyectados (con su id definitivo) */
   const ids=new Set(crudos.map(m=>m.id));
-  const proyectados = mk>ym(new Date()) ? fijos.filter(fj=>fj.libro===libro && fj.desde<=mk).map(fj=>instancia(fj,mk)).filter(m=>!ids.has(m.id)) : [];
+  const proyectados = mk>ym(new Date()) ? fijos.filter(fj=>fj.libro===libro && aplica(fj,mk)).map(fj=>instancia(fj,mk)).filter(m=>!ids.has(m.id)) : [];
   const pendMes=[...pend,...proyectados];
   const todoMes=[...todos.filter(m=>m.fecha.startsWith(mk)),...proyectados].sort((a,b)=>a.fecha.localeCompare(b.fecha)||(a.creado||0)-(b.creado||0));
   const vencidosAntes = mk===ym(new Date()) ? pend.filter(m=>m.fecha<mk+"-01") : [];
@@ -573,7 +592,7 @@ function rowFijo(fj){
   const r=h("div","row"); const ing=fj.tipo==="ingreso"; r.style.setProperty("--franja", ing?"var(--in)":"var(--out)");
   const t=h("div","txt"); t.append(h("div","c",fj.concepto));
   const prov = fj.proveedor && fj.proveedor!==fj.concepto ? fj.proveedor : "";
-  const s=[donde(fj),fj.banco,prov,fj.detalle].filter(Boolean).join(" · "); if(s) t.append(h("div","s",s)); t.append(h("div","s",textoDia(fj.dia)));
+  const s=[donde(fj),fj.banco,prov,fj.detalle].filter(Boolean).join(" · "); if(s) t.append(h("div","s",s)); const um=ultimoMes(fj); t.append(h("div","s",textoDia(fj.dia)+(um?` · Cuota ${Math.min(Math.max(numeroCuota(fj,ym(new Date())),1),fj.cuotas)} de ${fj.cuotas} · termina en ${parse(um+"-01").toLocaleDateString("es-AR",{month:"long",year:"numeric"})}`:"")));
   r.append(t, h("div","num amt "+fj.tipo,(ing?"+":"−")+fmt(fj.monto)));
   const a=h("div","acts"); const e=h("button","btn","Editar"); e.onclick=()=>cargarEnForm(fj,true); a.append(e, botonBorrar(()=>borrarFijo(fj)));
   r.append(a); return r;
