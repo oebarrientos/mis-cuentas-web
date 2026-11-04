@@ -74,6 +74,15 @@ input.amount{font-family:var(--f-num);font-size:1.25rem}
 .bar{display:grid;grid-template-columns:1fr auto;gap:3px 10px;font-size:.9rem}
 .bar i{grid-column:1/-1;height:8px;border-radius:4px;background:var(--out-bg);overflow:hidden;display:flex}.bar i b{display:block;height:100%;background:var(--out)}.bar i b.falta{opacity:.35}
 .bar small{grid-column:1/-1;color:var(--muted);font-size:.78rem}
+.bar .nom{display:flex;align-items:center;gap:8px;font-weight:600}
+.btn.mas{width:28px;height:28px;padding:0;border-radius:8px;font-size:1rem;line-height:1}
+.detalle{grid-column:1/-1;display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.resumenes{display:flex;flex-direction:column;gap:12px}
+.timeline{display:flex;flex-direction:column}
+.tl{position:relative;padding:0 0 14px 24px;border-left:2px solid var(--line);margin-left:6px}
+.tl:last-child{border-left-color:transparent}
+.tl::before{content:"";position:absolute;left:-8px;top:2px;width:14px;height:14px;border-radius:50%;background:var(--c)}
+.tltop{display:flex;justify-content:space-between;gap:10px}.tlf{font-weight:700;color:var(--c)}
 .bar.in i{background:var(--in-bg)}.bar.in i b{background:var(--in)}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
 .leyenda{display:flex;gap:14px;flex-wrap:wrap;font-size:.8rem;color:var(--muted)}
@@ -488,8 +497,10 @@ function render(){
   } else if(tab==="mes"){
     const mb=h("div","month"); const pv=h("button","","‹"), nx=h("button","","›"), lb=h("span","",cur.toLocaleDateString("es-AR",{month:"long",year:"numeric"}));
     pv.onclick=()=>{cur.setMonth(cur.getMonth()-1);render();}; nx.onclick=()=>{cur.setMonth(cur.getMonth()+1);render();}; mb.append(pv,lb,nx); v.append(mb);
-    const egr=todoMes.filter(m=>m.tipo==="egreso"), ing=todoMes.filter(m=>m.tipo==="ingreso");
-    const g=h("div","grid2");
+    const todoV=[...vencidosAntes,...todoMes];
+    if(!todoV.length){ empty("No hay nada cargado para este mes."); return; }
+    const egr=todoV.filter(m=>m.tipo==="egreso"), ing=todoV.filter(m=>m.tipo==="ingreso");
+    const g=h("div","resumenes");
     if(libro==="negocio"){
       const aProv=egr.filter(x=>x.proveedor), resto=egr.filter(x=>!x.proveedor);
       if(aProv.length) g.append(barras("Proveedores", lineas(aProv,x=>x.proveedor)));
@@ -499,10 +510,8 @@ function render(){
       const enCasas=egr.filter(x=>CASAS.includes(x.ambito)); if(enCasas.length) g.append(barras("Gastos por casa", lineas(enCasas,x=>x.ambito)));
     }
     if(ing.length) g.append(barras("Ingresos", lineas(ing,x=>x.categoria||"Otros"), true));
-    if(g.children.length) v.append(g);
-    if(vencidosAntes.length){ sec("Vencido de meses anteriores · "+fmt(sum(vencidosAntes))); vencidosAntes.forEach(m=>v.append(row(m))); }
-    if(!todoMes.length){ empty("No hay nada cargado para este mes."); return; }
-    let last=""; todoMes.forEach(m=>{ if(m.fecha!==last){ last=m.fecha; sec(fdate(m.fecha)); } v.append(row(m)); });
+    v.append(g);
+    v.append(cronograma(todoV.filter(m=>m.pendiente)));
   } else if(tab==="pend"){
     sec("A pagar · "+fmt(sum(aPagar))); if(!aPagar.length) empty("No tenés nada pendiente de pagar."); aPagar.forEach(m=>v.append(row(m)));
     sec("A cobrar · "+fmt(sum(aCobrar))); if(!aCobrar.length) empty("No tenés nada pendiente de cobrar. Cargá un ingreso como “Pendiente” con su fecha, por ejemplo un cheque."); aCobrar.forEach(m=>v.append(row(m)));
@@ -516,16 +525,38 @@ function render(){
 
 /* Un renglón por grupo: lo ya pagado (o cobrado) y lo que falta */
 function lineas(l, clave){
-  const m={}; l.forEach(x=>{ const k=clave(x); m[k]=m[k]||{n:k,hecho:0,falta:0}; m[k][x.pendiente?"falta":"hecho"]+=x.monto; });
+  const m={}; l.forEach(x=>{ const k=clave(x); m[k]=m[k]||{n:k,hecho:0,falta:0,movs:[]}; m[k][x.pendiente?"falta":"hecho"]+=x.monto; m[k].movs.push(x); });
+  Object.values(m).forEach(g=>g.movs.sort((a,b)=>a.fecha.localeCompare(b.fecha)));
   return Object.values(m).sort((a,b)=>(b.hecho+b.falta)-(a.hecho+a.falta));
 }
+const abiertos=new Set();
 function barras(titulo, lista, ingreso=false){
   const box=h("div","box"); box.append(h("div","day",titulo));
   const max=Math.max(...lista.map(x=>x.hecho+x.falta),0);
-  lista.forEach(x=>{ const b=h("div","bar"+(ingreso?" in":"")); b.append(h("span","",x.n),h("span","num",fmt(x.hecho+x.falta)));
+  lista.forEach(x=>{ const clave=titulo+"|"+x.n; const abierto=abiertos.has(clave);
+    const b=h("div","bar"+(ingreso?" in":""));
+    const tg=h("button","btn mas",abierto?"−":"+"); tg.type="button"; tg.title=abierto?"Ocultar detalle":"Ver detalle";
+    tg.onclick=()=>{ abierto?abiertos.delete(clave):abiertos.add(clave); render(); };
+    const nom=h("span","nom"); nom.append(tg, h("span","",x.n));
+    b.append(nom,h("span","num",fmt(x.hecho+x.falta)));
     const i=h("i"); const bh=h("b"); bh.style.width=(max?x.hecho/max*100:0)+"%"; const bf=h("b","falta"); bf.style.width=(max?x.falta/max*100:0)+"%"; i.append(bh,bf); b.append(i);
-    b.append(h("small","", (ingreso?"Cobrado ":"Pagado ")+fmt(x.hecho)+(x.falta?" · Falta "+fmt(x.falta):""))); box.append(b); });
+    b.append(h("small","", (ingreso?"Cobrado ":"Pagado ")+fmt(x.hecho)+(x.falta?" · Falta "+fmt(x.falta):"")));
+    if(abierto){ const d=h("div","detalle"); x.movs.forEach(m=>d.append(row(m))); b.append(d); }
+    box.append(b); });
   return box;
+}
+/* Línea de tiempo de lo que falta pagar: por fecha, cuánto vence y cuánto se lleva acumulado */
+function cronograma(pend){
+  const box=h("div","box"); box.append(h("div","day","Cronograma de pagos"));
+  const porDia={}; pend.filter(m=>m.tipo==="egreso").forEach(m=>{ (porDia[m.fecha]=porDia[m.fecha]||[]).push(m); });
+  const fechas=Object.keys(porDia).sort();
+  if(!fechas.length){ box.append(h("div","s","No queda nada por pagar este mes.")); return box; }
+  const tl=h("div","timeline"); let acum=0;
+  fechas.forEach(fe=>{ const l=porDia[fe], tot=sum(l); acum+=tot; const d=dias(fe);
+    const it=h("div","tl"); it.style.setProperty("--c",semaforo(d));
+    const top=h("div","tltop"); top.append(h("span","tlf",fdate(fe)+" · "+textoVence(d)), h("span","num",fmt(tot)));
+    it.append(top, h("div","s",l.map(m=>m.concepto).join(" · ")), h("div","s","Acumulado a pagar: "+fmt(acum))); tl.append(it); });
+  box.append(tl); return box;
 }
 function donde(x){ return [x.categoria!==x.concepto?x.categoria:"", CASAS.includes(x.ambito)?x.ambito:""].filter(Boolean).join(" · "); }
 function botonBorrar(fn){ const d=h("button","btn del","Borrar"); d.onclick=()=>{ if(d.dataset.sure) fn(); else { d.dataset.sure=1; d.textContent="¿Seguro?"; setTimeout(()=>{delete d.dataset.sure; d.textContent="Borrar";},3000); } }; return d; }
